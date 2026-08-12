@@ -33,8 +33,8 @@ from Models.AC_UA_LMTD import (
 EVAPORATOR_SPEC_MODE = "m17"
 #EVAPORATOR_SPEC_MODE = "T18"
 
-CYCLE_SCALE_SPEC_MODE = "m1"
-# CYCLE_SCALE_SPEC_MODE = "Qeva"
+# CYCLE_SCALE_SPEC_MODE = "m1"
+CYCLE_SCALE_SPEC_MODE = "Qeva"
 
 # SHEX_MODEL_MODE = "UA"
 SHEX_MODEL_MODE = "NTU"
@@ -56,7 +56,7 @@ def build_example_inputs() -> AKMInputs:
         UA_evap=7.805985208,  # 15, 1.5079, 11.3518
         UA_abs=10.03107026,      # 10, 1.5, 8.1355
         UA_des=9.935330421,   # 25, 2.4895, 10.4058
-        cp_w_kJkgK=4.2,
+        cp_w_kJkgK=4.18,
         desorber_vapor_superheat_K=0.0,
         shex_model=SHEX_MODEL_MODE,
         evaporator_spec_mode=EVAPORATOR_SPEC_MODE,
@@ -65,9 +65,9 @@ def build_example_inputs() -> AKMInputs:
     )
 
     if SHEX_MODEL_MODE == "UA":
-        common_kwargs["UA_shex"] = 3.105/22.96   
+        common_kwargs["UA_shex"] = 10.105   
     elif SHEX_MODEL_MODE == "NTU":
-        common_kwargs["Effectiveness_shex"] = 0.73
+        common_kwargs["Effectiveness_shex"] = 0.9
     else:
         raise ValueError(
             "SHEX_MODEL_MODE muss 'UA' oder 'NTU' sein."

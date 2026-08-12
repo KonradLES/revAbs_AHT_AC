@@ -574,7 +574,7 @@ def _resolve_cycle_scale(
 
     w4_balance = w4 if strict else max(w4, 1.0e-9)
     ratio = w1 / w4_balance
-    denominator = (1 - ratio) * (h9 - h10)
+    denominator = (1 - ratio) * (h10 - h9)
 
     if strict:
         if abs(denominator) <= 1.0e-12:

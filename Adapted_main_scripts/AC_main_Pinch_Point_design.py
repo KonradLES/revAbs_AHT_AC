@@ -30,11 +30,20 @@ from Models.AC_Pinch_Point import (
     trace_model,
 )
 
-EVAPORATOR_SPEC_MODE = "m17"
-# EVAPORATOR_SPEC_MODE = "T18"
+# DESORBER_SPEC_MODE = "m11"
+DESORBER_SPEC_MODE = "T12"
 
-CYCLE_SCALE_SPEC_MODE = "m1"
-# CYCLE_SCALE_SPEC_MODE = "Qeva"
+# ABSORBER_SPEC_MODE = "m13"
+ABSORBER_SPEC_MODE = "T14"
+
+# CONDENSER_SPEC_MODE = "m15"
+CONDENSER_SPEC_MODE = "T16"
+
+# EVAPORATOR_SPEC_MODE = "m17"
+EVAPORATOR_SPEC_MODE = "T18"
+
+# CYCLE_SCALE_SPEC_MODE = "m1"
+CYCLE_SCALE_SPEC_MODE = "Qeva"
 
 ABSORBER_CONDENSER_ROUTING_MODE = "parallel"
 #ABSORBER_CONDENSER_ROUTING_MODE = "series_absorber_to_condenser"
@@ -43,23 +52,51 @@ ABSORBER_CONDENSER_ROUTING_MODE = "parallel"
 def build_example_inputs() -> AKMInputs:
     common_kwargs = dict(
         T_11_C=90.0,   # 135, 60, 80
-        #T_13_C=None,   # 120, 60
-        #T_15_C=None,   # 120, 60
         T_17_C=11.0,   # 30, 20, 20
-        m_11=0.7,      # 4, 0.2, 4
-        m_13=1.7,      # 4, 0.2, 4
-        m_15=1.5,      # 4, 0.2, 4
-        dT_min_shex=10,    # 20.1
-        dT_min_des=1.68,     # 10.8
-        dT_min_cond=0.3,   # 5.4
-        dT_min_evap=2.8,   # 2.23
-        dT_min_abs=3.9,    # 7.82
+        dT_min_shex=2,    # 20.1
+        dT_min_des=5,     # 10.8, 1.68
+        dT_min_cond=5,   # 5.4, 0.3
+        dT_min_evap=5,   # 2.23, 2.8
+        dT_min_abs=5,    # 7.82, 3.9
         cp_w_kJkgK=4.18,
         desorber_vapor_superheat_K=0.0,
+        desorber_spec_mode=DESORBER_SPEC_MODE,
+        absorber_spec_mode=ABSORBER_SPEC_MODE,
+        condenser_spec_mode=CONDENSER_SPEC_MODE,
         evaporator_spec_mode=EVAPORATOR_SPEC_MODE,
         cycle_scale_spec_mode=CYCLE_SCALE_SPEC_MODE,
         absorber_condenser_routing_mode=ABSORBER_CONDENSER_ROUTING_MODE,
     )
+    
+    spec_kwargs: dict[str, float] = {}
+    
+    if DESORBER_SPEC_MODE == "m11":
+        spec_kwargs["m11_spec"] = 0.7  
+    elif DESORBER_SPEC_MODE == "T12":
+        spec_kwargs["T12_spec_C"] = 72  
+    else:
+        raise ValueError("DESORBER_SPEC_MODE muss 'm11' oder 'T12' sein.")
+        
+    if ABSORBER_SPEC_MODE == "m13":
+        spec_kwargs["m13_spec"] = 1.7  
+    elif ABSORBER_SPEC_MODE == "T14":
+        spec_kwargs["T14_spec_C"] = 32  
+    else:
+        raise ValueError("ABSORBER_SPEC_MODE muss 'm13' oder 'T14' sein.")
+        
+    if CONDENSER_SPEC_MODE == "m15":
+        spec_kwargs["m15_spec"] = 1.5 
+    elif CONDENSER_SPEC_MODE == "T16":
+        spec_kwargs["T16_spec_C"] = 32 
+    else:
+        raise ValueError("CONDENSER_SPEC_MODE muss 'm15' oder 'T16' sein.")
+    
+    if EVAPORATOR_SPEC_MODE == "m17":
+        spec_kwargs["m17_spec"] = 1.6  
+    elif EVAPORATOR_SPEC_MODE == "T18":
+        spec_kwargs["T18_spec_C"] = 5  
+    else:
+        raise ValueError("EVAPORATOR_SPEC_MODE muss 'm17' oder 'T18' sein.")
 
     if ABSORBER_CONDENSER_ROUTING_MODE == "parallel":
         common_kwargs["T_13_C"] = 25.0   # 120,60, 65
@@ -75,15 +112,6 @@ def build_example_inputs() -> AKMInputs:
             "ABSORBER_CONDENSER_ROUTING_MODE muss 'parallel', "
             "'series_absorber_to_condenser' oder 'series_condenser_to_absorber' sein."
         )
-
-    spec_kwargs: dict[str, float] = {}
-
-    if EVAPORATOR_SPEC_MODE == "m17":
-        spec_kwargs["m17_spec"] = 1.6  # 4, 0.2
-    elif EVAPORATOR_SPEC_MODE == "T18":
-        spec_kwargs["T18_spec_C"] = 5  # 146, 80
-    else:
-        raise ValueError("EVAPORATOR_SPEC_MODE muss 'm17' oder 'T18' sein.")
 
     if CYCLE_SCALE_SPEC_MODE == "m1":
         spec_kwargs["m1_spec"] = 0.37  # 1, 0.05, 0.236
