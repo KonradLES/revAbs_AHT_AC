@@ -1,0 +1,18 @@
+Konfiguration: Serie Desorber → Verdampfer
+========================================================================
+m6-Bereich: 0.40000 bis 1.09000 kg/s
+Referenzpunkt: m6=1.00000 kg/s
+Abwärmetemperatur: 135.0 °C
+-
+Q_abs-Optimum bei m6           : 0.810000 kg/s
+Maximales Q_abs                : 257.779581 kW
+COP am Optimum                 : 0.505391
+FR am Optimum                  : 7.844827
+Q_des am Optimum               : 260.215991 kW
+Q_evap am Optimum              : 249.843343 kW
+Q_cond am Optimum              : 252.337569 kW
+m7 am Optimum                  : 0.103253 kg/s
+m21 am Optimum                 : 0.091978 kg/s
+beta am Optimum                : 0.109195
+Optimum am Rand des m6-Rasters : False
+Feasible Punkte für Suche      : 71

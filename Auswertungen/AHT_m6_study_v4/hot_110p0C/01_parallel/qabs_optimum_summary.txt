@@ -1,0 +1,18 @@
+Konfiguration: Parallel (T13 = T15)
+========================================================================
+m6-Bereich: 0.40000 bis 1.09000 kg/s
+Referenzpunkt: m6=1.00000 kg/s
+Abwärmetemperatur: 110.0 °C
+-
+Q_abs-Optimum bei m6           : 0.590000 kg/s
+Maximales Q_abs                : 141.891498 kW
+COP am Optimum                 : 0.502829
+FR am Optimum                  : 10.397998
+Q_des am Optimum               : 142.303074 kW
+Q_evap am Optimum              : 139.883250 kW
+Q_cond am Optimum              : 140.324520 kW
+m7 am Optimum                  : 0.056742 kg/s
+m21 am Optimum                 : 0.050530 kg/s
+beta am Optimum                : 0.109465
+Optimum am Rand des m6-Rasters : False
+Feasible Punkte für Suche      : 71

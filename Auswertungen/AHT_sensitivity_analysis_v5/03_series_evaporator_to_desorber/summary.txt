@@ -1,0 +1,26 @@
+Konfiguration: Serie Verdampfer → Desorber
+========================================================================
+Hot-Bereich: 100.0 bis 135.0 °C
+T17-Bereich: 15.0 bis 45.0 °C
+Referenzpunkt: T17=30.0 °C, T15=120.0 °C
+deltaT_margin_K: 0.500
+scaled_residual_tol: 1.000e-05
+-
+Punkte gesamt: 195
+feasible_numeric: 195
+feasible_physical: 195
+feasible_margin: 195
+-
+Failure-Code-Verteilung:
+   0 | zulässig            : 195
+   1 | Solver / Endpunkt   : 0
+   2 | Residuen zu groß    : 0
+   3 | Druckniveau         : 0
+   4 | Massenstrom         : 0
+   5 | Kristallisation     : 0
+   6 | Desorber ΔT         : 0
+   7 | Verdampfer ΔT       : 0
+   8 | Absorber ΔT         : 0
+   9 | Kondensator ΔT      : 0
+  10 | SHEX ΔT             : 0
+  99 | Sonstiges           : 0
