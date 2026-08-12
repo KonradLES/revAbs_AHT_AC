@@ -15,8 +15,11 @@ Die externe thermische Verschaltung von Desorber und Verdampfer ist wählbar:
 """
 
 from __future__ import annotations
-
 import numpy as np
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from Models.AHT_UA_LMTD import (
     AWTInputs,

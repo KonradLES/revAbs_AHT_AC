@@ -15,8 +15,11 @@ Die externe thermische Verschaltung von Desorber und Verdampfer ist wählbar:
 """
 
 from __future__ import annotations
-
 import numpy as np
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from Models.AC_Pinch_Point import (
     AKMInputs,
@@ -28,7 +31,7 @@ from Models.AC_Pinch_Point import (
 )
 
 EVAPORATOR_SPEC_MODE = "m17"
-#EVAPORATOR_SPEC_MODE = "T18"
+# EVAPORATOR_SPEC_MODE = "T18"
 
 CYCLE_SCALE_SPEC_MODE = "m1"
 # CYCLE_SCALE_SPEC_MODE = "Qeva"
@@ -39,18 +42,18 @@ ABSORBER_CONDENSER_ROUTING_MODE = "parallel"
 
 def build_example_inputs() -> AKMInputs:
     common_kwargs = dict(
-        T_11_C=100.0,   # 135, 60, 80
+        T_11_C=90.0,   # 135, 60, 80
         #T_13_C=None,   # 120, 60
         #T_15_C=None,   # 120, 60
-        T_17_C=10.0,   # 30, 20, 20
-        m_11=1,      # 4, 0.2, 4
-        m_13=0.28,      # 4, 0.2, 4
-        m_15=0.28,      # 4, 0.2, 4
-        dT_min_shex=5,    # 20.1
-        dT_min_des=5,     # 10.8
-        dT_min_cond=5,   # 5.4
-        dT_min_evap=5,   # 2.23
-        dT_min_abs=5,    # 7.82
+        T_17_C=11.0,   # 30, 20, 20
+        m_11=0.7,      # 4, 0.2, 4
+        m_13=1.7,      # 4, 0.2, 4
+        m_15=1.5,      # 4, 0.2, 4
+        dT_min_shex=10,    # 20.1
+        dT_min_des=1.68,     # 10.8
+        dT_min_cond=0.3,   # 5.4
+        dT_min_evap=2.8,   # 2.23
+        dT_min_abs=3.9,    # 7.82
         cp_w_kJkgK=4.18,
         desorber_vapor_superheat_K=0.0,
         evaporator_spec_mode=EVAPORATOR_SPEC_MODE,
@@ -76,16 +79,16 @@ def build_example_inputs() -> AKMInputs:
     spec_kwargs: dict[str, float] = {}
 
     if EVAPORATOR_SPEC_MODE == "m17":
-        spec_kwargs["m17_spec"] = 0.4  # 4, 0.2
+        spec_kwargs["m17_spec"] = 1.6  # 4, 0.2
     elif EVAPORATOR_SPEC_MODE == "T18":
-        spec_kwargs["T18_spec_C"] = 146  # 146, 80
+        spec_kwargs["T18_spec_C"] = 5  # 146, 80
     else:
         raise ValueError("EVAPORATOR_SPEC_MODE muss 'm17' oder 'T18' sein.")
 
     if CYCLE_SCALE_SPEC_MODE == "m1":
-        spec_kwargs["m1_spec"] = 0.05  # 1, 0.05, 0.236
+        spec_kwargs["m1_spec"] = 0.37  # 1, 0.05, 0.236
     elif CYCLE_SCALE_SPEC_MODE == "Qeva":
-        spec_kwargs["Qevap_spec_kW"] = 10.67  # 184, 6.9
+        spec_kwargs["Qevap_spec_kW"] = 40.9  # 184, 6.9
     else:
         raise ValueError("CYCLE_SCALE_SPEC_MODE muss 'm1' oder 'Qeva' sein.")
 
@@ -106,12 +109,12 @@ if __name__ == "__main__":
     x0 = primary_temperatures_C_to_K(
         np.array(
             [
-                40.06,   # T8  [°C] 55, 29.98, 30
-                1.39,   # T10 [°C] 101, 50.02, 55
-                0.262,    # x4  [-] 0.23, 0.15, 0.23
-                0.243,    # x1  [-] 0.27, 0.18, 0.27
-                63.61,   # T3  [°C] 121, 59.50, 70
-                53.11,   # T5  [°C] 150, 68.98, 80
+                32.3,   # T8  [°C] 55, 29.98, 30
+                2.2,   # T10 [°C] 101, 50.02, 55
+                0.2388,    # x4  [-] 0.23, 0.15, 0.23
+                0.2185,    # x1  [-] 0.27, 0.18, 0.27
+                76.7,   # T3  [°C] 121, 59.50, 70
+                42,   # T5  [°C] 150, 68.98, 80
             ],
             dtype=float,
         )

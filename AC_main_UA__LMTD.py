@@ -33,8 +33,8 @@ EVAPORATOR_SPEC_MODE = "m17"
 CYCLE_SCALE_SPEC_MODE = "m1"
 # CYCLE_SCALE_SPEC_MODE = "Qeva"
 
-SHEX_MODEL_MODE = "UA"
-# SHEX_MODEL_MODE = "NTU"
+# SHEX_MODEL_MODE = "UA"
+SHEX_MODEL_MODE = "NTU"
 
 ABSORBER_CONDENSER_ROUTING_MODE = "parallel"
 #ABSORBER_CONDENSER_ROUTING_MODE = "series_absorber_to_condenser"
@@ -64,7 +64,7 @@ def build_example_inputs() -> AKMInputs:
     if SHEX_MODEL_MODE == "UA":
         common_kwargs["UA_shex"] = 3.105/22.96   
     elif SHEX_MODEL_MODE == "NTU":
-        common_kwargs["Effectiveness_shex"] = 0.9
+        common_kwargs["Effectiveness_shex"] = 0.64
     else:
         raise ValueError(
             "SHEX_MODEL_MODE muss 'UA' oder 'NTU' sein."
