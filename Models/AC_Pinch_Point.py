@@ -184,7 +184,7 @@ class AKMInputs:
 
     # Solver
     solver_tol: float = 1.0e-9
-    max_nfev: int = 5000
+    max_nfev: int = 500 
     penalty_level: float = 1.0e6
 
     def __post_init__(self) -> None:
@@ -851,7 +851,7 @@ def initial_guess(inputs: AKMInputs) -> np.ndarray:
     return np.array(
         [
             T_cond_ref + 15.0,      # T8
-            inputs.T_11 - 8.0,      # T10
+            inputs.T_17 - 8.0,      # T10
             0.22,                   # x4
             0.243,                  # x1
             T_abs_ref + 12.0,       # T3

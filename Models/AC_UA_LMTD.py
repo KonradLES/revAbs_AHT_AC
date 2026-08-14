@@ -663,7 +663,7 @@ def initial_guess(inputs: AKMInputs) -> np.ndarray:
     return np.array(
         [
             T_cond_ref + 15.0,      # T8
-            inputs.T_11 - 8.0,      # T10
+            inputs.T_17 - 8.0,      # T10
             0.22,                   # x4
             0.243,                  # x1
             T_abs_ref + 12.0,       # T3
