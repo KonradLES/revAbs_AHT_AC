@@ -50,7 +50,7 @@ def build_example_inputs() -> AWTInputs:
         dT_min_shex=4.3,    # 4.3
         dT_min_des=6.3,     # 6.3
         dT_min_cond=25.1,   # 13.8
-        dT_min_evap=19.0,   # 19.0
+        dT_min_evap=7.73,   # 19.0
         dT_min_abs=17.8,    # 17.8
         cp_w_kJkgK=4.18,
         desorber_vapor_superheat_K=0.0,
@@ -100,7 +100,7 @@ if __name__ == "__main__":
     inputs = build_example_inputs()
 
     # Startvektor in der Reihenfolge:
-    # [T8, T10, x3, x6, x20, T2, T4, beta]
+    # [T8, T10, x3, x6, x20, T2, T4]
     #
     # Benutzerangabe der Temperatur-Startwerte in °C.
     # Die Konvertierung in die internen Modell-Einheiten [K] erfolgt direkt darunter.
@@ -114,7 +114,6 @@ if __name__ == "__main__":
                 0.26,   # x20 [-] 0.26, 0.17, 0.26
                 121,   # T2  [°C] 121, 59.50, 70
                 150,   # T4  [°C] 150, 68.98, 80
-                0.15,     # beta [-] 0.2, 0.1, 0.1
             ],
             dtype=float,
         )

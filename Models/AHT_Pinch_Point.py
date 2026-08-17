@@ -1,4 +1,4 @@
-"""AWT-Simulation mit 8 primären Unbekannten.
+"""AWT-Simulation mit 7 primären Unbekannten.
 
 Die Absorber-Spezifikation ist variabel:
 - absorber_spec_mode = "m11": m11_spec wird vorgegeben, T12 wird berechnet
@@ -13,12 +13,13 @@ Modellannahmen
 - Arbeitsstoffpaar: H2O/LiBr
 - stationärer Betrieb
 - keine Druckverluste in Apparaten und Leitungen
+- isenthalpe Lösungsdrossel mit lokaler Flash-Berechnung
 - adiabate Vorabsorption vor dem Absorber wird explizit abgebildet
 - externe Fluide werden mit konstantem cp_w beschrieben
 
 Primäre Solvervariablen
 -----------------------
-z = [T8, T10, x3, x6, x20, T2, T4, beta]
+z = [T8, T10, x3, x6, x20, T2, T4]
 
 Interne Einheiten
 -----------------
@@ -68,16 +69,15 @@ except ImportError as exc:  # pragma: no cover
 
 import Thermodynamic_Properties.libr_props as lp
 
-PRIMARY_VARIABLE_NAMES = ["T8", "T10", "x3", "x6", "x20", "T2", "T4", "beta"]
+PRIMARY_VARIABLE_NAMES = ["T8", "T10", "x3", "x6", "x20", "T2", "T4"]
 RESIDUAL_NAMES = [
     "R1_SHEX_energy",
     "R2_SHEX_pinch",
     "R3_preabs_energy",
-    "R4_preabs_LiBr",
-    "R5_desorber_pinch",
-    "R6_condenser_pinch",
-    "R7_evaporator_pinch",
-    "R8_absorber_pinch",
+    "R4_desorber_pinch",
+    "R5_condenser_pinch",
+    "R6_evaporator_pinch",
+    "R7_absorber_pinch",
 ]
 
 PRIMARY_TEMPERATURE_INDICES = (0, 1, 5, 6)
@@ -441,7 +441,16 @@ def smooth_min(a: float, b: float, k: float = 50.0) -> float:
     return lo - math.log1p(math.exp(-k * diff)) / k
 
 def lmtd(delta_T_1: float, delta_T_2: float) -> float:
-    """Strenge LMTD: wirft ModelEvaluationError für ΔT ≤ 0."""
+    """Strenge LMTD: wirft ModelEvaluationError für ΔT <= 0."""
+    if delta_T_1 <= 0.0 or delta_T_2 <= 0.0:
+        raise ModelEvaluationError(
+            f"LMTD undefiniert, weil delta_T_1={delta_T_1:.6f} K "
+            f"oder delta_T_2={delta_T_2:.6f} K nicht positiv ist."
+        )
+
+    if math.isclose(delta_T_1, delta_T_2, rel_tol=1.0e-10, abs_tol=1.0e-10):
+        return 0.5 * (delta_T_1 + delta_T_2)
+
     return (delta_T_1 - delta_T_2) / math.log(delta_T_1 / delta_T_2)
 
 
@@ -493,10 +502,17 @@ def _penalty_vector(size: int, level: float) -> np.ndarray:
 
 def _residual_scales(m6: float) -> np.ndarray:
     return np.array(
-        [100.0, 100.0, 100.0, max(abs(m6), 1.0), 100.0, 100.0, 100.0, 100.0],   #max(abs(m6), 1.0)
+        [
+            100.0,  # R1_SHEX_energy, kW
+            1.0,    # R2_SHEX_pinch, K
+            100.0,  # R3_preabs_energy, kW
+            1.0,    # R4_desorber_pinch, K
+            1.0,    # R5_condenser_pinch, K
+            1.0,    # R6_evaporator_pinch, K
+            1.0,    # R7_absorber_pinch, K
+        ],
         dtype=float,
     )
-
 
 def _state_dict(
     T_K: float,
@@ -647,7 +663,6 @@ def initial_guess(inputs: AWTInputs) -> np.ndarray:
             0.27,                   # x20
             inputs.T_11 + 12.0,     # T2
             T_des_ref - 18.0,       # T4
-            0.30,                   # beta = m19 / m10
         ],
         dtype=float,
     )
@@ -665,7 +680,6 @@ def bounds(inputs: AWTInputs) -> Tuple[np.ndarray, np.ndarray]:
             0.05,               # x20
             inputs.T_17 + 1.0,  # T2
             inputs.T_17 + 1.0,  # T4
-            0.0,                # beta
         ],
         dtype=float,
     )
@@ -678,7 +692,6 @@ def bounds(inputs: AWTInputs) -> Tuple[np.ndarray, np.ndarray]:
             0.39,                           # x20
             500.0,                          # T2
             500.0,                          # T4
-            1.0,                            # beta
         ],
         dtype=float,
     )
@@ -725,7 +738,7 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
         - Fallbacks für T5 und T1
         - bei fundamentaler Druckverletzung p_high <= p_low direkter Residuenvektor
     """
-    T8, T10, x3, x6, x20, T2, T4, beta = map(float, z)
+    T8, T10, x3, x6, x20, T2, T4 = map(float, z)
 
     # ------------------------------------------------------------------
     # 1) Druckniveaus des Kältemittels
@@ -776,9 +789,31 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
     if strict and m7 <= 0.0:
         raise ModelEvaluationError(f"Kältemittelmassenstrom nicht positiv: m7={m7:.6f} kg/s.")
 
-    m19 = beta * m10
+    if strict:
+        if w20 <= 0.0:
+            raise ModelEvaluationError(f"w20 nicht positiv: w20={w20:.6f}.")
+        if m10 <= 0.0:
+            raise ModelEvaluationError(f"m10 nicht positiv: m10={m10:.6f} kg/s.")
+
+
+    w20_safe = w20 if strict else max(w20, 1.0e-12)
+    if strict:
+        m10_safe = m10
+    else:
+        m10_safe = m10 if abs(m10) > 1.0e-12 else (1.0e-12 if m10 >= 0.0 else -1.0e-12)
+
+    # LiBr-Bilanz der adiabaten Vorabsorption wird algebraisch erfüllt:
+    #     m4 * w6 = m20 * w20
+    # beta ist dadurch eine abgeleitete Größe und keine primäre Solvervariable mehr.
+    m20 = m4 * w6 / w20_safe
+    m19 = m20 - m4
+    beta = m19 / m10_safe
     m21 = m10 - m19
-    m20 = m4 + m19
+
+    if strict and not (0.0 <= beta <= 1.0):
+        raise ModelEvaluationError(
+            f"Berechneter Vorabsorptionsanteil beta außerhalb [0,1]: beta={beta:.6f}."
+        )
 
     if strict and m21 < 0.0:
         raise ModelEvaluationError(f"m21 negativ: {m21:.6f} kg/s.")
@@ -812,8 +847,8 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
         raise ModelEvaluationError(f"Q_shex_cold nicht positiv: {Q_shex_cold:.6f} kW.")
     Q_shex = Q_shex_hot
     # Pinch-Residuum SHEX: kleinster Temperaturabstand = dT_min_shex
-    dT_shex_hot_end  = T4 - T3   # heiß ein  / kalt aus
-    dT_shex_cold_end = T5 - T2   # heiß aus  / kalt ein
+    dT_shex_hot_end  = T3 - T4   # heiß ein  / kalt aus
+    dT_shex_cold_end = T2 - T5   # heiß aus  / kalt ein
     pinch_shex = smooth_min(dT_shex_hot_end, dT_shex_cold_end, k=50.0)
 
     lmtd_shex = _counterflow_lmtd_mode(
@@ -880,7 +915,7 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
         T18 = inputs.T_17 + Q_cond / (inputs.m_17 * inputs.cp_w_kJkgK)
     
     # Pinch Kondensator: min beider Enden (Lage hängt vom Betriebspunkt ab)
-    dT_cond_hot_end  = T8 - T18   # heiß ein / kalt aus
+    dT_cond_hot_end  = T7 - T18   # heiß ein / kalt aus
     dT_cond_cold_end = T8 - inputs.T_17   # heiß aus / kalt ein
     pinch_cond = smooth_min(dT_cond_hot_end, dT_cond_cold_end, k=50.0)
 
@@ -910,24 +945,35 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
     # Externe Temperaturen Desorber / Verdampfer (Routing-Logik identisch)
     if inputs.uses_serial_evaporator_to_desorber_routing:
         T15_in = _resolve_evaporator_external_inlet_temperature(inputs)
-        T16 = T15_in - Q_evap/(inputs.m_15*inputs.cp_w_kJkgK) if strict else \
-              T15_in - Q_evap/(inputs.m_15*inputs.cp_w_kJkgK)
+        if strict:
+            T16 = cooling_outlet_temperature(T15_in, Q_evap, inputs.m_15, inputs.cp_w_kJkgK)
+        else:
+            T16 = T15_in - Q_evap / (inputs.m_15 * inputs.cp_w_kJkgK)
         lmtd_evap = _counterflow_lmtd_mode(
             strict=strict, hot_in=T15_in, hot_out=T16, cold_in=T10, cold_out=T10
         )
         T13_in = _resolve_desorber_external_inlet_temperature(inputs, T16)
-        T14 = T13_in - Q_des/(inputs.m_13*inputs.cp_w_kJkgK)
+        if strict:
+            T14 = cooling_outlet_temperature(T13_in, Q_des, inputs.m_13, inputs.cp_w_kJkgK)
+        else:
+            T14 = T13_in - Q_des / (inputs.m_13 * inputs.cp_w_kJkgK)
         lmtd_des = _counterflow_lmtd_mode(
             strict=strict, hot_in=T13_in, hot_out=T14, cold_in=T1, cold_out=T6
         )
     else:
         T13_in = _resolve_desorber_external_inlet_temperature(inputs)
-        T14 = T13_in - Q_des/(inputs.m_13*inputs.cp_w_kJkgK)
+        if strict:
+            T14 = cooling_outlet_temperature(T13_in, Q_des, inputs.m_13, inputs.cp_w_kJkgK)
+        else:
+            T14 = T13_in - Q_des / (inputs.m_13 * inputs.cp_w_kJkgK)
         lmtd_des = _counterflow_lmtd_mode(
             strict=strict, hot_in=T13_in, hot_out=T14, cold_in=T1, cold_out=T6
         )
         T15_in = _resolve_evaporator_external_inlet_temperature(inputs, T14)
-        T16 = T15_in - Q_evap/(inputs.m_15*inputs.cp_w_kJkgK)
+        if strict:
+            T16 = cooling_outlet_temperature(T15_in, Q_evap, inputs.m_15, inputs.cp_w_kJkgK)
+        else:
+            T16 = T15_in - Q_evap / (inputs.m_15 * inputs.cp_w_kJkgK)
         lmtd_evap = _counterflow_lmtd_mode(
             strict=strict, hot_in=T15_in, hot_out=T16, cold_in=T10, cold_out=T10
         )
@@ -938,7 +984,7 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
     pinch_des  = smooth_min(dT_des_hot_end,  dT_des_cold_end,  k=50.0)
 
     # Pinch Verdampfer: min beider Enden (Lage hängt vom Betriebspunkt ab)
-    dT_evap_hot_end  = T16 - T9    # heiß ein / kalt aus
+    dT_evap_hot_end  = T16 - T10    # heiß ein / kalt aus
     dT_evap_cold_end = T15_in - T10   # heiß aus / kalt ein
     pinch_evap = smooth_min(dT_evap_hot_end, dT_evap_cold_end, k=50.0)
 
@@ -1081,14 +1127,13 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
     # ------------------------------------------------------------------
     residuals_raw_array = np.array(
         [
-            Q_shex_hot - Q_shex_cold,                       # R1: SHEX Energiebilanz
-            pinch_shex - inputs.dT_min_shex,                # R2: SHEX Pinch
-            m4*h4 + m19*h10 - m20*h20,                      # R3: Vorabsorption Energie
-            m4*w6 - m20*w20,                                 # R4: Vorabsorption LiBr
-            pinch_des  - inputs.dT_min_des,                 # R5: Desorber Pinch
-            pinch_cond - inputs.dT_min_cond,                # R6: Kondensator Pinch
-            pinch_evap - inputs.dT_min_evap,                # R7: Verdampfer Pinch
-            pinch_abs  - inputs.dT_min_abs,                 # R8: Absorber Pinch
+            Q_shex_hot - Q_shex_cold,                      
+            pinch_shex - inputs.dT_min_shex,                
+            m4 * h4 + m19 * h10 - m20 * h20,                          
+            pinch_des  - inputs.dT_min_des,                 
+            pinch_cond - inputs.dT_min_cond,                
+            pinch_evap - inputs.dT_min_evap,                
+            pinch_abs  - inputs.dT_min_abs,                
         ],
         dtype=float,
     )
@@ -1144,7 +1189,7 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
         "deltaT_cond_1_K": T7 - T18,
         "deltaT_cond_2_K": T8 - inputs.T_17,
         "deltaT_evap_1_K": T15_in - T10,
-        "deltaT_evap_2_K": T16 - T9,
+        "deltaT_evap_2_K": T16 - T10,
         "deltaT_abs_1_K": T20 - T12,
         "deltaT_abs_2_K": T3 - inputs.T_11,
     }
@@ -1176,7 +1221,7 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
         "18": _state_dict(T18,         m_kg_s=inputs.m_17),
     }
 
-    primary_variables = dict(zip(PRIMARY_VARIABLE_NAMES, [T8, T10, x3, x6, x20, T2, T4, beta]))
+    primary_variables = dict(zip(PRIMARY_VARIABLE_NAMES, [T8, T10, x3, x6, x20, T2, T4]))
     kpis = _calculate_kpis(
         Q_abs=Q_abs,
         Q_evap=Q_evap,
@@ -1215,15 +1260,26 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
             "UA_abs": Q_abs / lmtd_abs,
         },
         pinch_temperatures_K = {
-            "pinch_shex_K":     pinch_shex,
-            "pinch_des_K":      pinch_des,
-            "pinch_cond_K":     pinch_cond,
-            "pinch_evap_K":     pinch_evap,
-            "pinch_abs_K":      pinch_abs,
+            "pinch_shex_K": pinch_shex,
+            "pinch_des_K": pinch_des,
+            "pinch_cond_K": pinch_cond,
+            "pinch_evap_K": pinch_evap,
+            "pinch_abs_K": pinch_abs,
+
+            "dT_shex_hot_end_K": dT_shex_hot_end,
+            "dT_shex_cold_end_K": dT_shex_cold_end,
+
             "dT_des_hot_end_K": dT_des_hot_end,
-            "dT_des_cold_end_K":dT_des_cold_end,
+            "dT_des_cold_end_K": dT_des_cold_end,
+
+            "dT_cond_hot_end_K": dT_cond_hot_end,
+            "dT_cond_cold_end_K": dT_cond_cold_end,
+
+            "dT_evap_hot_end_K": dT_evap_hot_end,
+            "dT_evap_cold_end_K": dT_evap_cold_end,
+
             "dT_abs_hot_end_K": dT_abs_hot_end,
-            "dT_abs_cold_end_K":dT_abs_cold_end,
+            "dT_abs_cold_end_K": dT_abs_cold_end,
         },
         compositions={
             "x3_LiBr_mol": x3,
@@ -1408,11 +1464,11 @@ def solve_awt(inputs: AWTInputs, x0: np.ndarray | None = None) -> AWTResult:
 def trace_model(z: np.ndarray, inputs: AWTInputs) -> ModelTrace:
     """Wertet das Modell schrittweise aus und gibt alle Zwischenergebnisse zurück.
     Nützlich zur Diagnose von Startwertproblemen."""
-    T8, T10, x3, x6, x20, T2, T4, beta = map(float, z)
+    T8, T10, x3, x6, x20, T2, T4 = map(float, z)
 
     values: Dict[str, float] = {}
     primary_variables = dict(
-        zip(PRIMARY_VARIABLE_NAMES, [T8, T10, x3, x6, x20, T2, T4, beta])
+        zip(PRIMARY_VARIABLE_NAMES, [T8, T10, x3, x6, x20, T2, T4])
     )
     stage = "initial"
 
@@ -1467,17 +1523,22 @@ def trace_model(z: np.ndarray, inputs: AWTInputs) -> ModelTrace:
         m3 = m4 * w6 / w3
         m7 = m3 - m6
         m10 = m7
-        m19 = beta * m10
-        m20 = m4 + m19
+        m20 = m4 * w6 / w20
+        m19 = m20 - m4
+        beta = m19 / m10
         m21 = m10 - m19
         values["m3_kg_s"] = m3
         values["m7_kg_s"] = m7
         values["m19_kg_s"] = m19
         values["m20_kg_s"] = m20
         values["m21_kg_s"] = m21
+        values["beta_m19_over_m10"] = beta
+        values["preabs_LiBr_residual_kg_s"] = m4 * w6 - m20 * w20
 
         if m7 <= 0.0:
             raise ModelEvaluationError(f"m7={m7:.6f} kg/s nicht positiv.")
+        if not (0.0 <= beta <= 1.0):
+            raise ModelEvaluationError(f"beta={beta:.6f} liegt außerhalb [0,1].")
         if m21 < 0.0:
             raise ModelEvaluationError(f"m21={m21:.6f} kg/s negativ.")
 
@@ -1538,7 +1599,7 @@ def trace_model(z: np.ndarray, inputs: AWTInputs) -> ModelTrace:
         values["h8_kJ_kg"] = h8
         values["Q_cond_kW"] = Q_cond
         values["T18_K"] = T18
-        values["deltaT_cond_1_K"] = T8 - T18
+        values["deltaT_cond_1_K"] = T7 - T18
         values["deltaT_cond_2_K"] = T8 - inputs.T_17
 
         if Q_cond <= 0.0:

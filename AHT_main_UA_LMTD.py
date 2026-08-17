@@ -111,7 +111,7 @@ if __name__ == "__main__":
     inputs = build_example_inputs()
 
     # Startvektor in der Reihenfolge:
-    # [T8, T10, x3, x6, x20, T2, T4, beta]
+    # [T8, T10, x3, x6, x20, T2, T4]
     #
     # Benutzerangabe der Temperatur-Startwerte in °C.
     # Die Konvertierung in die internen Modell-Einheiten [K] erfolgt direkt darunter.
@@ -125,7 +125,6 @@ if __name__ == "__main__":
                 0.26,   # x20 [-] 0.26, 0.17, 0.26
                 121,   # T2  [°C] 121, 59.50, 70
                 150,   # T4  [°C] 150, 68.98, 80
-                0.15,     # beta [-] 0.2, 0.1, 0.1
             ],
             dtype=float,
         )

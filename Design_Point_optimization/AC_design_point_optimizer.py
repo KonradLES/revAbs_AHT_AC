@@ -142,8 +142,8 @@ class DesignPointConfig:
     # 100-150 ist idR ein guter Kompromiss aus Geschwindigkeit und Verlässlichkeit,
     # solange der Warmstart greift. Diagnostik am Ende von optimize_design_point()
     # zeigt an, wie oft das Limit tatsächlich erreicht wurde.
-    opt_solver_tol: float = 1.0e-6
-    opt_max_nfev: int = 150
+    opt_solver_tol: float = 1.0e-5  # 1.0e-6
+    opt_max_nfev: int = 100         # 150
 
     # DE-Tuning
     de_popsize: int = 12

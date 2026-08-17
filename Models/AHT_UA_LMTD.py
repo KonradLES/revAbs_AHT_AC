@@ -1,4 +1,4 @@
-"""AWT-Simulation mit 8 primären Unbekannten.
+"""AWT-Simulation mit 7 primären Unbekannten.
 
 Die Absorber-Spezifikation ist variabel:
 - absorber_spec_mode = "m11": m11_spec wird vorgegeben, T12 wird berechnet
@@ -13,12 +13,13 @@ Modellannahmen
 - Arbeitsstoffpaar: H2O/LiBr
 - stationärer Betrieb
 - keine Druckverluste in Apparaten und Leitungen
+- isenthalpe Lösungsdrossel mit lokaler Flash-Berechnung
 - adiabate Vorabsorption vor dem Absorber wird explizit abgebildet
 - externe Fluide werden mit konstantem cp_w beschrieben
 
 Primäre Solvervariablen
 -----------------------
-z = [T8, T10, x3, x6, x20, T2, T4, beta]
+z = [T8, T10, x3, x6, x20, T2, T4]
 
 Interne Einheiten
 -----------------
@@ -49,7 +50,6 @@ Diese robuste Variante hat dieselben Nullstellen wie die strenge Auswertung
 (LMTD_soft = LMTD wenn beide ΔT > 0), konvergiert also zur korrekten
 physikalischen Lösung.
 """
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -76,16 +76,15 @@ except ImportError as exc:  # pragma: no cover
 
 import Thermodynamic_Properties.libr_props as lp
 
-PRIMARY_VARIABLE_NAMES = ["T8", "T10", "x3", "x6", "x20", "T2", "T4", "beta"]
+PRIMARY_VARIABLE_NAMES = ["T8", "T10", "x3", "x6", "x20", "T2", "T4"]
 RESIDUAL_NAMES = [
     "R1_SHEX_energy",
     "R2_SHEX_UA",
     "R3_preabs_energy",
-    "R4_preabs_LiBr",
-    "R5_desorber_UA",
-    "R6_condenser_UA",
-    "R7_evaporator_UA",
-    "R8_absorber_UA",
+    "R4_desorber_UA",
+    "R5_condenser_UA",
+    "R6_evaporator_UA",
+    "R7_absorber_UA",
 ]
 
 PRIMARY_TEMPERATURE_INDICES = (0, 1, 5, 6)
@@ -507,7 +506,7 @@ def _penalty_vector(size: int, level: float) -> np.ndarray:
 
 def _residual_scales(m6: float) -> np.ndarray:
     return np.array(
-        [100.0, 100.0, 100.0, max(abs(m6), 1.0), 100.0, 100.0, 100.0, 100.0],   #max(abs(m6), 1.0)
+        [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0],   #max(abs(m6), 1.0)
         dtype=float,
     )
 
@@ -661,7 +660,6 @@ def initial_guess(inputs: AWTInputs) -> np.ndarray:
             0.27,                   # x20
             inputs.T_11 + 12.0,     # T2
             T_des_ref - 18.0,       # T4
-            0.30,                   # beta = m19 / m10
         ],
         dtype=float,
     )
@@ -679,7 +677,6 @@ def bounds(inputs: AWTInputs) -> Tuple[np.ndarray, np.ndarray]:
             0.05,               # x20
             inputs.T_17 + 1.0,  # T2
             inputs.T_17 + 1.0,  # T4
-            0.0,                # beta
         ],
         dtype=float,
     )
@@ -692,7 +689,6 @@ def bounds(inputs: AWTInputs) -> Tuple[np.ndarray, np.ndarray]:
             0.39,                           # x20
             500.0,                          # T2
             500.0,                          # T4
-            1.0,                            # beta
         ],
         dtype=float,
     )
@@ -739,7 +735,7 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
         - Fallbacks für T5 und T1
         - bei fundamentaler Druckverletzung p_high <= p_low direkter Residuenvektor
     """
-    T8, T10, x3, x6, x20, T2, T4, beta = map(float, z)
+    T8, T10, x3, x6, x20, T2, T4 = map(float, z)
 
     # ------------------------------------------------------------------
     # 1) Druckniveaus des Kältemittels
@@ -790,9 +786,30 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
     if strict and m7 <= 0.0:
         raise ModelEvaluationError(f"Kältemittelmassenstrom nicht positiv: m7={m7:.6f} kg/s.")
 
-    m19 = beta * m10
+    if strict:
+        if w20 <= 0.0:
+            raise ModelEvaluationError(f"w20 nicht positiv: w20={w20:.6f}.")
+        if m10 <= 0.0:
+            raise ModelEvaluationError(f"m10 nicht positiv: m10={m10:.6f} kg/s.")
+
+    w20_safe = w20 if strict else max(w20, 1.0e-12)
+    if strict:
+        m10_safe = m10
+    else:
+        m10_safe = m10 if abs(m10) > 1.0e-12 else (1.0e-12 if m10 >= 0.0 else -1.0e-12)
+
+    # LiBr-Bilanz der adiabaten Vorabsorption wird algebraisch erfüllt:
+    #     m4 * w6 = m20 * w20
+    # beta ist dadurch eine abgeleitete Größe und keine primäre Solvervariable mehr.
+    m20 = m4 * w6 / w20_safe
+    m19 = m20 - m4
+    beta = m19 / m10_safe
     m21 = m10 - m19
-    m20 = m4 + m19
+
+    if strict and not (0.0 <= beta <= 1.0):
+        raise ModelEvaluationError(
+            f"Berechneter Vorabsorptionsanteil beta außerhalb [0,1]: beta={beta:.6f}."
+        )
 
     if strict and m21 < 0.0:
         raise ModelEvaluationError(f"m21 negativ: {m21:.6f} kg/s.")
@@ -1095,7 +1112,6 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
             Q_shex_hot - Q_shex_cold,
             R2_shex,
             m4 * h4 + m19 * h10 - m20 * h20,
-            m4 * w6 - m20 * w20,
             Q_des - inputs.UA_des * lmtd_des,
             Q_cond - inputs.UA_cond * lmtd_cond,
             Q_evap - inputs.UA_evap * lmtd_evap,
@@ -1187,7 +1203,7 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
         "18": _state_dict(T18,         m_kg_s=inputs.m_17),
     }
 
-    primary_variables = dict(zip(PRIMARY_VARIABLE_NAMES, [T8, T10, x3, x6, x20, T2, T4, beta]))
+    primary_variables = dict(zip(PRIMARY_VARIABLE_NAMES, [T8, T10, x3, x6, x20, T2, T4]))
     kpis = _calculate_kpis(
         Q_abs=Q_abs,
         Q_evap=Q_evap,
@@ -1401,11 +1417,11 @@ def solve_awt(inputs: AWTInputs, x0: np.ndarray | None = None) -> AWTResult:
 def trace_model(z: np.ndarray, inputs: AWTInputs) -> ModelTrace:
     """Wertet das Modell schrittweise aus und gibt alle Zwischenergebnisse zurück.
     Nützlich zur Diagnose von Startwertproblemen."""
-    T8, T10, x3, x6, x20, T2, T4, beta = map(float, z)
+    T8, T10, x3, x6, x20, T2, T4 = map(float, z)
 
     values: Dict[str, float] = {}
     primary_variables = dict(
-        zip(PRIMARY_VARIABLE_NAMES, [T8, T10, x3, x6, x20, T2, T4, beta])
+        zip(PRIMARY_VARIABLE_NAMES, [T8, T10, x3, x6, x20, T2, T4])
     )
     stage = "initial"
 
@@ -1460,14 +1476,17 @@ def trace_model(z: np.ndarray, inputs: AWTInputs) -> ModelTrace:
         m3 = m4 * w6 / w3
         m7 = m3 - m6
         m10 = m7
-        m19 = beta * m10
-        m20 = m4 + m19
+        m20 = m4 * w6 / w20
+        m19 = m20 - m4
+        beta = m19 / m10
         m21 = m10 - m19
         values["m3_kg_s"] = m3
         values["m7_kg_s"] = m7
         values["m19_kg_s"] = m19
         values["m20_kg_s"] = m20
         values["m21_kg_s"] = m21
+        values["beta_m19_over_m10"] = beta
+        values["preabs_LiBr_residual_kg_s"] = m4 * w6 - m20 * w20
 
         if m7 <= 0.0:
             raise ModelEvaluationError(f"m7={m7:.6f} kg/s nicht positiv.")

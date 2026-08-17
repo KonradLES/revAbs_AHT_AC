@@ -33,11 +33,11 @@ from Models.AC_UA_LMTD import (
 EVAPORATOR_SPEC_MODE = "m17"
 #EVAPORATOR_SPEC_MODE = "T18"
 
-# CYCLE_SCALE_SPEC_MODE = "m1"
-CYCLE_SCALE_SPEC_MODE = "Qeva"
+CYCLE_SCALE_SPEC_MODE = "m1"
+# CYCLE_SCALE_SPEC_MODE = "Qeva"
 
-# SHEX_MODEL_MODE = "UA"
-SHEX_MODEL_MODE = "NTU"
+SHEX_MODEL_MODE = "UA"
+# SHEX_MODEL_MODE = "NTU"
 
 ABSORBER_CONDENSER_ROUTING_MODE = "parallel"
 #ABSORBER_CONDENSER_ROUTING_MODE = "series_absorber_to_condenser"
@@ -49,13 +49,13 @@ def build_example_inputs() -> AKMInputs:
         #T_13_C=None,   # 120, 60
         #T_15_C=None,   # 120, 60
         T_17_C=11.0,   # 30, 20, 20
-        m_11=0.7,      # 4, 0.2, 4
-        m_13=1.7,      # 4, 0.2, 4
-        m_15=1.5,      # 4, 0.2, 4
-        UA_cond=19.88064798,  # 10, 1.0025, 25.2578
-        UA_evap=7.805985208,  # 15, 1.5079, 11.3518
-        UA_abs=10.03107026,      # 10, 1.5, 8.1355
-        UA_des=9.935330421,   # 25, 2.4895, 10.4058
+        m_11=0.705665,      # 4, 0.2, 4
+        m_13=1.743043,      # 4, 0.2, 4
+        m_15=1.469354,      # 4, 0.2, 4
+        UA_cond=7.0341,  # 10, 1.0025, 25.2578
+        UA_evap=7.4831,  # 15, 1.5079, 11.3518
+        UA_abs=8.0236,      # 10, 1.5, 8.1355
+        UA_des=7.3100,   # 25, 2.4895, 10.4058
         cp_w_kJkgK=4.18,
         desorber_vapor_superheat_K=0.0,
         shex_model=SHEX_MODEL_MODE,
@@ -65,7 +65,7 @@ def build_example_inputs() -> AKMInputs:
     )
 
     if SHEX_MODEL_MODE == "UA":
-        common_kwargs["UA_shex"] = 10.105   
+        common_kwargs["UA_shex"] = 0.5651  
     elif SHEX_MODEL_MODE == "NTU":
         common_kwargs["Effectiveness_shex"] = 0.9
     else:
@@ -91,14 +91,14 @@ def build_example_inputs() -> AKMInputs:
     spec_kwargs: dict[str, float] = {}
 
     if EVAPORATOR_SPEC_MODE == "m17":
-        spec_kwargs["m17_spec"] = 1.6  # 4, 0.2
+        spec_kwargs["m17_spec"] = 1.630781  # 4, 0.2
     elif EVAPORATOR_SPEC_MODE == "T18":
         spec_kwargs["T18_spec_C"] = 5  # 146, 80
     else:
         raise ValueError("EVAPORATOR_SPEC_MODE muss 'm17' oder 'T18' sein.")
 
     if CYCLE_SCALE_SPEC_MODE == "m1":
-        spec_kwargs["m1_spec"] = 0.37  # 1, 0.05, 0.236
+        spec_kwargs["m1_spec"] =  0.166634  # 1, 0.05, 0.236
     elif CYCLE_SCALE_SPEC_MODE == "Qeva":
         spec_kwargs["Qevap_spec_kW"] = 40.9  # 184, 6.9
     else:
