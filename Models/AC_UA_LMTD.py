@@ -962,7 +962,7 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
         else:
             T14 = T13_in + Q_abs / (inputs.m_13 * inputs.cp_w_kJkgK)
         lmtd_abs = _counterflow_lmtd_mode(
-            strict=strict, hot_in=T6, hot_out=T1, cold_in=inputs.T_13, cold_out=T14
+            strict=strict, hot_in=T6, hot_out=T1, cold_in=T13_in, cold_out=T14
         )
     else:
         T13_in = _resolve_absorber_external_inlet_temperature(inputs)
@@ -971,7 +971,7 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
         else:
             T14 = T13_in + Q_abs / (inputs.m_13 * inputs.cp_w_kJkgK)
         lmtd_abs = _counterflow_lmtd_mode(
-            strict=strict, hot_in=T6, hot_out=T1, cold_in=inputs.T_13, cold_out=T14
+            strict=strict, hot_in=T6, hot_out=T1, cold_in=T13_in, cold_out=T14
         )
         T15_in = _resolve_condenser_external_inlet_temperature(inputs, T14)
         if strict:
@@ -1069,10 +1069,10 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
         "4":  _state_dict(T4,          p_Pa=p_high, m_kg_s=m4,  h_kJ_kg=h4,  x_LiBr_mol=x4,  w_LiBr=w4),
         "5":  _state_dict(T5,          p_Pa=p_high, m_kg_s=m5,  h_kJ_kg=h5,  x_LiBr_mol=x4,  w_LiBr=w4),
         "6":  _state_dict(T6,          p_Pa=p_low,  m_kg_s=m6,  h_kJ_kg=h6,  x_LiBr_mol=x4,  w_LiBr=w4),
-        "7":  _state_dict(T7,          p_Pa=p_low,  m_kg_s=m7,  h_kJ_kg=h7,  x_LiBr_mol=0.0, w_LiBr=0.0),
-        "8":  _state_dict(T8,          p_Pa=p_low,  m_kg_s=m8,  h_kJ_kg=h8,  x_LiBr_mol=0.0, w_LiBr=0.0),
-        "9":  _state_dict(T9,          p_Pa=p_high, m_kg_s=m9,  h_kJ_kg=h9,  x_LiBr_mol=0.0, w_LiBr=0.0),
-        "10": _state_dict(T10,         p_Pa=p_high, m_kg_s=m10, h_kJ_kg=h10, x_LiBr_mol=0.0, w_LiBr=0.0),
+        "7":  _state_dict(T7,          p_Pa=p_high,  m_kg_s=m7,  h_kJ_kg=h7,  x_LiBr_mol=0.0, w_LiBr=0.0),
+        "8":  _state_dict(T8,          p_Pa=p_high,  m_kg_s=m8,  h_kJ_kg=h8,  x_LiBr_mol=0.0, w_LiBr=0.0),
+        "9":  _state_dict(T9,          p_Pa=p_low, m_kg_s=m9,  h_kJ_kg=h9,  x_LiBr_mol=0.0, w_LiBr=0.0),
+        "10": _state_dict(T10,         p_Pa=p_low, m_kg_s=m10, h_kJ_kg=h10, x_LiBr_mol=0.0, w_LiBr=0.0),
         "11": _state_dict(inputs.T_11, m_kg_s=inputs.m_11),
         "12": _state_dict(T12,         m_kg_s=inputs.m_11),
         "13": _state_dict(T13_in,       m_kg_s=inputs.m_13),
@@ -1305,7 +1305,7 @@ def trace_model(z: np.ndarray, inputs: AKMInputs) -> ModelTrace:
         values["w4_LiBr"] = w4
         values["w1_LiBr"] = w1
 
-        if not (w1 > w4 > 0.0):
+        if not (w4 > w1 > 0.0):
             raise ModelEvaluationError(
                 f"Konzentrationshierarchie verletzt: w4={w4:.6f}, w1={w1:.6f}."
             )
@@ -1448,7 +1448,7 @@ def trace_model(z: np.ndarray, inputs: AKMInputs) -> ModelTrace:
         values["deltaT_abs_2_K"] = T1 - T13_in
 
         lmtd_abs = counterflow_lmtd(
-            hot_in=T6, hot_out=T1, cold_in=inputs.T_13, cold_out=T14
+            hot_in=T6, hot_out=T1, cold_in=T13_in, cold_out=T14
         )
         values["LMTD_abs_K"] = lmtd_abs
 

@@ -120,11 +120,6 @@ class AKMInputs:
     T_15_C: float | None
     T_17_C: float
 
-    # # Externe Massenströme [kg/s]
-    # m_11: float
-    # m_13: float
-    # m_15: float
-
     # UA-Werte [kW/K]
     dT_min_shex: float
     dT_min_des:  float
@@ -330,7 +325,7 @@ class AKMInputs:
                 )
             if self.T16_spec_C <= self.T_15_C:
                 raise ValueError(
-                    "Bei condenser_spec_mode='T16' muss T16_spec_C < T_15_C gelten."
+                    "Bei condenser_spec_mode='T16' muss T16_spec_C > T_15_C gelten."
                 )
                                     
         if self.evaporator_spec_mode not in {"m17", "T18"}:
@@ -615,9 +610,15 @@ def _penalty_vector(size: int, level: float) -> np.ndarray:
 
 
 def _residual_scales(m1: float) -> np.ndarray:
-    """Skalierung der sieben energetischen Residuen [kW]."""
     return np.array(
-        [100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
+        [
+            100.0,  # SHEX energy, kW
+            1.0,    # SHEX pinch, K
+            1.0,    # desorber pinch, K
+            1.0,    # condenser pinch, K
+            1.0,    # evaporator pinch, K
+            1.0,    # absorber pinch, K
+        ],
         dtype=float,
     )
 
@@ -775,7 +776,7 @@ def _resolve_condenser_external_stream(
     if strict:
         if delta_T <= 0.0:
             raise ModelEvaluationError(
-                "Für condenser_spec_mode='T16' muss T16 > T16 gelten."
+                "Für condenser_spec_mode='T16' muss T16 > T15 gelten."
             )
         if inputs.cp_w_kJkgK <= 0.0:
             raise ModelEvaluationError("Externer Wärmekapazitätsstrom muss positiv sein.")
@@ -1127,7 +1128,7 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
         else:
             m13, T14 = _resolve_absorber_external_stream(inputs, Q_abs, strict=False, T13=T13_in)
         lmtd_abs = _counterflow_lmtd_mode(
-            strict=strict, hot_in=T6, hot_out=T1, cold_in=inputs.T_13, cold_out=T14
+            strict=strict, hot_in=T6, hot_out=T1, cold_in=T13_in, cold_out=T14
         )
     else:
         T13_in = _resolve_absorber_external_inlet_temperature(inputs)
@@ -1136,7 +1137,7 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
         else:
             m13, T14 = _resolve_absorber_external_stream(inputs, Q_abs, strict=False, T13=T13_in)
         lmtd_abs = _counterflow_lmtd_mode(
-            strict=strict, hot_in=T6, hot_out=T1, cold_in=inputs.T_13, cold_out=T14
+            strict=strict, hot_in=T6, hot_out=T1, cold_in=T13_in, cold_out=T14
         )
         T15_in = _resolve_condenser_external_inlet_temperature(inputs, T14)
         if strict:
@@ -1207,7 +1208,9 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
         "p_high_Pa": p_high,
         "pressure_ratio_high_over_low": p_high / p_low,
         "T12_K": T12,
+        "T13_K": T13_in,
         "T14_K": T14,
+        "T15_K": T15_in,
         "T16_K": T16,
         "T18_K": T18,
         "m6_kg_s": m6,
@@ -1215,8 +1218,6 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
         "m13_kg_s": m13,
         "m15_kg_s": m15,
         "m17_kg_s": m17,
-        "T13_K": T13_in,
-        "T15_K": T15_in,
         "deltaT_shex_1_K": T4 - T3,
         "deltaT_shex_2_K": T5 - T2,
         "deltaT_des_1_K": inputs.T_11 - T4,
@@ -1239,10 +1240,10 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
         "4":  _state_dict(T4,          p_Pa=p_high, m_kg_s=m4,  h_kJ_kg=h4,  x_LiBr_mol=x4,  w_LiBr=w4),
         "5":  _state_dict(T5,          p_Pa=p_high, m_kg_s=m5,  h_kJ_kg=h5,  x_LiBr_mol=x4,  w_LiBr=w4),
         "6":  _state_dict(T6,          p_Pa=p_low,  m_kg_s=m6,  h_kJ_kg=h6,  x_LiBr_mol=x4,  w_LiBr=w4),
-        "7":  _state_dict(T7,          p_Pa=p_low,  m_kg_s=m7,  h_kJ_kg=h7,  x_LiBr_mol=0.0, w_LiBr=0.0),
-        "8":  _state_dict(T8,          p_Pa=p_low,  m_kg_s=m8,  h_kJ_kg=h8,  x_LiBr_mol=0.0, w_LiBr=0.0),
-        "9":  _state_dict(T9,          p_Pa=p_high, m_kg_s=m9,  h_kJ_kg=h9,  x_LiBr_mol=0.0, w_LiBr=0.0),
-        "10": _state_dict(T10,         p_Pa=p_high, m_kg_s=m10, h_kJ_kg=h10, x_LiBr_mol=0.0, w_LiBr=0.0),
+        "7":  _state_dict(T7,          p_Pa=p_high,  m_kg_s=m7,  h_kJ_kg=h7,  x_LiBr_mol=0.0, w_LiBr=0.0),
+        "8":  _state_dict(T8,          p_Pa=p_high,  m_kg_s=m8,  h_kJ_kg=h8,  x_LiBr_mol=0.0, w_LiBr=0.0),
+        "9":  _state_dict(T9,          p_Pa=p_low, m_kg_s=m9,  h_kJ_kg=h9,  x_LiBr_mol=0.0, w_LiBr=0.0),
+        "10": _state_dict(T10,         p_Pa=p_low, m_kg_s=m10, h_kJ_kg=h10, x_LiBr_mol=0.0, w_LiBr=0.0),
         "11": _state_dict(inputs.T_11, m_kg_s=m11),
         "12": _state_dict(T12,         m_kg_s=m11),
         "13": _state_dict(T13_in,       m_kg_s=m13),
@@ -1492,7 +1493,7 @@ def trace_model(z: np.ndarray, inputs: AKMInputs) -> ModelTrace:
         values["w4_LiBr"] = w4
         values["w1_LiBr"] = w1
 
-        if not (w1 > w4 > 0.0):
+        if not (w4 > w1 > 0.0):
             raise ModelEvaluationError(
                 f"Konzentrationshierarchie verletzt: w4={w4:.6f}, w1={w1:.6f}."
             )
@@ -1586,7 +1587,7 @@ def trace_model(z: np.ndarray, inputs: AKMInputs) -> ModelTrace:
             raise ModelEvaluationError(f"Q_evap={Q_evap:.4f} kW nicht positiv.")
         m17, T18 = _resolve_evaporator_external_stream(inputs, Q_evap, strict=True)
         lmtd_evap = _counterflow_lmtd_mode(
-            hot_in=inputs.T_17, hot_out=T18, cold_in=T9, cold_out=T10
+            hot_in=inputs.T_17, hot_out=T18, cold_in=T9, cold_out=T10, strict=True
         )
 
         values["Q_evap_kW"] = Q_evap
@@ -1605,7 +1606,7 @@ def trace_model(z: np.ndarray, inputs: AKMInputs) -> ModelTrace:
             T15_in = _resolve_condenser_external_inlet_temperature(inputs, T14_seed)
 
         Q_cond = m7 * (h7 - h8)
-        m15, T16 = _resolve_condenser_external_stream(inputs, Q_abs, strict=True, T15=T15_in)
+        m15, T16 = _resolve_condenser_external_stream(inputs, Q_cond, strict=True, T15=T15_in)
         values["Q_cond_kW"] = Q_cond
         values["T16_K"] = T16
         values["T15_K"] = T15_in
@@ -1637,7 +1638,7 @@ def trace_model(z: np.ndarray, inputs: AKMInputs) -> ModelTrace:
         values["deltaT_abs_2_K"] = T1 - T13_in
 
         lmtd_abs = counterflow_lmtd(
-            hot_in=T6, hot_out=T1, cold_in=inputs.T_13, cold_out=T14
+            hot_in=T6, hot_out=T1, cold_in=T13_in, cold_out=T14
         )
         values["LMTD_abs_K"] = lmtd_abs
 

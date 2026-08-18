@@ -27,11 +27,20 @@ from Models.AHT_Pinch_Point import (
     trace_model,
 )
 
-ABSORBER_SPEC_MODE = "m11"
-#ABSORBER_SPEC_MODE = "T12"
+# CYCLE_SCALE_SPEC_MODE = "m6"
+CYCLE_SCALE_SPEC_MODE = "Qabs"
 
-CYCLE_SCALE_SPEC_MODE = "m6"
-# CYCLE_SCALE_SPEC_MODE = "Qabs"
+# ABSORBER_SPEC_MODE = "m11"
+ABSORBER_SPEC_MODE = "T12"
+
+# DESORBER_SPEC_MODE = "m13"
+DESORBER_SPEC_MODE = "T14"
+
+# EVAPORATOR_SPEC_MODE = "m15"
+EVAPORATOR_SPEC_MODE = "T16"
+
+# CONDENSER_SPEC_MODE = "m17"
+CONDENSER_SPEC_MODE = "T18"
 
 DESORBER_EVAPORATOR_ROUTING_MODE = "parallel"
 #DESORBER_EVAPORATOR_ROUTING_MODE = "series_desorber_to_evaporator"
@@ -41,12 +50,7 @@ DESORBER_EVAPORATOR_ROUTING_MODE = "parallel"
 def build_example_inputs() -> AWTInputs:
     common_kwargs = dict(
         T_11_C=135.0,   # 135, 60, 80
-        #T_13_C=None,   # 120, 60
-        #T_15_C=None,   # 120, 60
         T_17_C=30.0,   # 30, 20, 20
-        m_13=4,      # 4, 0.2, 4
-        m_15=4,      # 4, 0.2, 4
-        m_17=4,      # 4, 0.2, 4
         dT_min_shex=4.3,    # 4.3
         dT_min_des=6.3,     # 6.3
         dT_min_cond=25.1,   # 13.8
@@ -55,9 +59,50 @@ def build_example_inputs() -> AWTInputs:
         cp_w_kJkgK=4.18,
         desorber_vapor_superheat_K=0.0,
         absorber_spec_mode=ABSORBER_SPEC_MODE,
+        desorber_spec_mode=DESORBER_SPEC_MODE,
+        evaporator_spec_mode=EVAPORATOR_SPEC_MODE,
+        condenser_spec_mode=CONDENSER_SPEC_MODE,
         cycle_scale_spec_mode=CYCLE_SCALE_SPEC_MODE,
         desorber_evaporator_routing_mode=DESORBER_EVAPORATOR_ROUTING_MODE,
     )
+
+    spec_kwargs: dict[str, float] = {}
+
+    if CYCLE_SCALE_SPEC_MODE == "m6":
+        spec_kwargs["m6_spec"] = 1.0  # 1, 0.05, 0.236
+    elif CYCLE_SCALE_SPEC_MODE == "Qabs":
+        spec_kwargs["Qabs_spec_kW"] = 184.4  # 184, 6.9
+    else:
+        raise ValueError("CYCLE_SCALE_SPEC_MODE muss 'm6' oder 'Qabs' sein.")
+    
+    if ABSORBER_SPEC_MODE == "m11":
+        spec_kwargs["m11_spec"] = 4  # 4, 0.2
+    elif ABSORBER_SPEC_MODE == "T12":
+        spec_kwargs["T12_spec_C"] = 146.02  # 146, 80
+    else:
+        raise ValueError("ABSORBER_SPEC_MODE muss 'm11' oder 'T12' sein.")
+
+    if DESORBER_SPEC_MODE == "m13":
+        spec_kwargs["m13_spec"] = 4  
+    elif DESORBER_SPEC_MODE == "T14":
+        spec_kwargs["T14_spec_C"] = 108.92  
+    else:
+        raise ValueError("DESORBER_SPEC_MODE muss 'm13' oder 'T14' sein.")
+        
+    if EVAPORATOR_SPEC_MODE == "m15":
+        spec_kwargs["m15_spec"] = 4 
+    elif EVAPORATOR_SPEC_MODE == "T16":
+        spec_kwargs["T16_spec_C"] = 108.80
+    else:
+        raise ValueError("EVAPORATOR_SPEC_MODE muss 'm15' oder 'T16' sein.")
+    
+    if CONDENSER_SPEC_MODE == "m17":
+        spec_kwargs["m17_spec"] = 4  
+    elif CONDENSER_SPEC_MODE == "T18":
+        spec_kwargs["T18_spec_C"] = 41.26  
+    else:
+        raise ValueError("CONDENSER_SPEC_MODE muss 'm17' oder 'T18' sein.")
+    
 
     if DESORBER_EVAPORATOR_ROUTING_MODE == "parallel":
         common_kwargs["T_13_C"] = 120.0   # 120,60, 65
@@ -73,22 +118,6 @@ def build_example_inputs() -> AWTInputs:
             "DESORBER_EVAPORATOR_ROUTING_MODE muss 'parallel', "
             "'series_desorber_to_evaporator' oder 'series_evaporator_to_desorber' sein."
         )
-
-    spec_kwargs: dict[str, float] = {}
-
-    if ABSORBER_SPEC_MODE == "m11":
-        spec_kwargs["m11_spec"] = 4  # 4, 0.2
-    elif ABSORBER_SPEC_MODE == "T12":
-        spec_kwargs["T12_spec_C"] = 146  # 146, 80
-    else:
-        raise ValueError("ABSORBER_SPEC_MODE muss 'm11' oder 'T12' sein.")
-
-    if CYCLE_SCALE_SPEC_MODE == "m6":
-        spec_kwargs["m6_spec"] = 1.0  # 1, 0.05, 0.236
-    elif CYCLE_SCALE_SPEC_MODE == "Qabs":
-        spec_kwargs["Qabs_spec_kW"] = 184  # 184, 6.9
-    else:
-        raise ValueError("CYCLE_SCALE_SPEC_MODE muss 'm6' oder 'Qabs' sein.")
 
     return AWTInputs(
         **common_kwargs,

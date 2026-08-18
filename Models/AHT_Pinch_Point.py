@@ -121,11 +121,6 @@ class AWTInputs:
     T_15_C: float | None
     T_17_C: float
 
-    # Externe Massenströme [kg/s]
-    m_13: float
-    m_15: float
-    m_17: float
-
     # Pinch-Temperaturdifferenzen [K]
     dT_min_shex: float
     dT_min_des:  float
@@ -154,6 +149,27 @@ class AWTInputs:
     absorber_spec_mode: str = "m11"
     m11_spec: float | None = None
     T12_spec_C: float | None = None
+
+    # Spezifikation des externen Desorberstroms:
+    # - "m13": m13_spec wird vorgegeben, T14 wird berechnet
+    # - "T14": T14_spec_C wird vorgegeben, m13 wird berechnet
+    desorber_spec_mode: str = "m13"
+    m13_spec: float | None = None
+    T14_spec_C: float | None = None
+
+    # Spezifikation des externen Verdampferstroms:
+    # - "m15": m15_spec wird vorgegeben, T16 wird berechnet
+    # - "T16": T16_spec_C wird vorgegeben, m15 wird berechnet
+    evaporator_spec_mode: str = "m15"
+    m15_spec: float | None = None
+    T16_spec_C: float | None = None
+
+    # Spezifikation des externen Kondensatorstroms:
+    # - "m17": m17_spec wird vorgegeben, T18 wird berechnet
+    # - "T18": T18_spec_C wird vorgegeben, m17 wird berechnet
+    condenser_spec_mode: str = "m17"
+    m17_spec: float | None = None
+    T18_spec_C: float | None = None
 
     # Externe Fluide: Wasser
     cp_w_kJkgK: float = 4.18
@@ -266,6 +282,75 @@ class AWTInputs:
                 raise ValueError(
                     "Bei absorber_spec_mode='T12' muss T12_spec_C > T_11_C gelten."
                 )
+            
+        if self.desorber_spec_mode not in {"m13", "T14"}:
+            raise ValueError("desorber_spec_mode muss 'm13' oder 'T14' sein.")
+        if self.desorber_spec_mode == "m13":
+            if self.m13_spec is None:
+                raise ValueError("Bei desorber_spec_mode='m13' muss m13_spec vorgegeben werden.")
+            if self.T14_spec_C is not None:
+                raise ValueError(
+                    "Bei desorber_spec_mode='m13' darf T14_spec_C nicht gesetzt sein."
+                )
+            if self.m13_spec <= 0.0:
+                raise ValueError("Bei desorber_spec_mode='m13' muss m13_spec > 0 gelten.")
+        else:
+            if self.T14_spec_C is None:
+                raise ValueError("Bei desorber_spec_mode='T14' muss T14_spec_C vorgegeben werden.")
+            if self.m13_spec is not None:
+                raise ValueError(
+                    "Bei desorber_spec_mode='T14' darf m13_spec nicht gesetzt sein."
+                )
+            if self.T14_spec_C >= self.T_13_C:
+                raise ValueError(
+                    "Bei desorber_spec_mode='T14' muss T14_spec_C < T_13_C gelten."
+                )
+
+        if self.evaporator_spec_mode not in {"m15", "T16"}:
+            raise ValueError("evaporator_spec_mode muss 'm15' oder 'T16' sein.")
+        if self.evaporator_spec_mode == "m15":
+            if self.m15_spec is None:
+                raise ValueError("Bei evaporator_spec_mode='m15' muss m15_spec vorgegeben werden.")
+            if self.T16_spec_C is not None:
+                raise ValueError(
+                    "Bei evaporator_spec_mode='m15' darf T16_spec_C nicht gesetzt sein."
+                )
+            if self.m15_spec <= 0.0:
+                raise ValueError("Bei evaporator_spec_mode='m15' muss m15_spec > 0 gelten.")
+        else:
+            if self.T16_spec_C is None:
+                raise ValueError("Bei evaporator_spec_mode='T16' muss T16_spec_C vorgegeben werden.")
+            if self.m15_spec is not None:
+                raise ValueError(
+                    "Bei evaporator_spec_mode='T16' darf m15_spec nicht gesetzt sein."
+                )
+            if self.T16_spec_C >= self.T_15_C:
+                raise ValueError(
+                    "Bei evaporator_spec_mode='T16' muss T16_spec_C < T_15_C gelten."
+                )
+                                    
+        if self.condenser_spec_mode not in {"m17", "T18"}:
+            raise ValueError("condenser_spec_mode muss 'm17' oder 'T18' sein.")
+        if self.condenser_spec_mode == "m17":
+            if self.m17_spec is None:
+                raise ValueError("Bei condenser_spec_mode='m17' muss m17_spec vorgegeben werden.")
+            if self.T18_spec_C is not None:
+                raise ValueError(
+                    "Bei condenser_spec_mode='m17' darf T18_spec_C nicht gesetzt sein."
+                )
+            if self.m17_spec <= 0.0:
+                raise ValueError("Bei condenser_spec_mode='m17' muss m17_spec > 0 gelten.")
+        else:
+            if self.T18_spec_C is None:
+                raise ValueError("Bei condenser_spec_mode='T18' muss T18_spec_C vorgegeben werden.")
+            if self.m17_spec is not None:
+                raise ValueError(
+                    "Bei condenser_spec_mode='T18' darf m17_spec nicht gesetzt sein."
+                )
+            if self.T18_spec_C <= self.T_17_C:
+                raise ValueError(
+                    "Bei condenser_spec_mode='T18' muss T18_spec_C > T_17_C gelten."
+                )
 
     @property
     def T_11(self) -> float:
@@ -286,6 +371,12 @@ class AWTInputs:
         return celsius_to_kelvin(self.T_13_C)
 
     @property
+    def T14_spec(self) -> float:
+        if self.T14_spec_C is None:
+            raise AttributeError("T14_spec_C ist für diese Spezifikation nicht gesetzt.")
+        return celsius_to_kelvin(self.T14_spec_C)
+    
+    @property
     def T_15(self) -> float:
         if self.T_15_C is None:
             raise AttributeError(
@@ -294,9 +385,21 @@ class AWTInputs:
         return celsius_to_kelvin(self.T_15_C)
 
     @property
+    def T16_spec(self) -> float:
+        if self.T16_spec_C is None:
+            raise AttributeError("T16_spec_C ist für diese Spezifikation nicht gesetzt.")
+        return celsius_to_kelvin(self.T16_spec_C)
+
+    @property
     def T_17(self) -> float:
         return celsius_to_kelvin(self.T_17_C)
-
+    
+    @property
+    def T18_spec(self) -> float:
+        if self.T18_spec_C is None:
+            raise AttributeError("T18_spec_C ist für diese Spezifikation nicht gesetzt.")
+        return celsius_to_kelvin(self.T18_spec_C)
+    
     @property
     def uses_serial_desorber_to_evaporator_routing(self) -> bool:
         return self.desorber_evaporator_routing_mode == "series_desorber_to_evaporator"
@@ -346,7 +449,7 @@ class ModelEvaluation:
     states: Dict[str, Dict[str, float]]
     heat_flows_kW: Dict[str, float]
     kpis: Dict[str, float]
-    pump_work_kW: Dict[str, float]
+    pump_work_W: Dict[str, float]
     UA_conversion: Dict[str, float] 
     pinch_temperatures_K: Dict[str, float] 
     compositions: Dict[str, float]
@@ -367,7 +470,7 @@ class AWTResult:
     states: Dict[str, Dict[str, float]]
     heat_flows_kW: Dict[str, float]
     kpis: Dict[str, float]
-    pump_work_kW: Dict[str, float]
+    pump_work_W: Dict[str, float]
     UA_conversion: Dict[str, float] 
     pinch_temperatures_K: Dict[str, float] 
     compositions: Dict[str, float]
@@ -587,7 +690,6 @@ def _resolve_cycle_scale(
         denominator_safe = 1.0e-12 if denominator_safe >= 0.0 else -1.0e-12
     return float(inputs.Qabs_spec_kW) / denominator_safe
 
-
 def _resolve_absorber_external_stream(
     inputs: AWTInputs, Q_abs: float, *, strict: bool
 ) -> tuple[float, float]:
@@ -616,6 +718,93 @@ def _resolve_absorber_external_stream(
             raise ModelEvaluationError("Externer Wärmekapazitätsstrom muss positiv sein.")
     m11 = Q_abs / (inputs.cp_w_kJkgK * delta_T)
     return m11, T12
+
+def _resolve_desorber_external_stream(
+    inputs: AWTInputs, Q_des: float, *, strict: bool, T13: float 
+) -> tuple[float, float]:
+    """Löst die Desorber-Spezifikation auf interne Arbeitsgrößen auf.
+
+    Rückgabe
+    --------
+    (m13, T14)
+    """
+    if inputs.desorber_spec_mode == "m13":
+        m13 = float(inputs.m13_spec)  # durch __post_init__ abgesichert
+        if strict:
+            T14 = cooling_outlet_temperature(T13, Q_des, m13, inputs.cp_w_kJkgK)
+        else:
+            T14 = T13 - Q_des / (m13 * inputs.cp_w_kJkgK)
+        return m13, T14
+
+    T14 = inputs.T14_spec
+    delta_T = T13 - T14
+    if strict:
+        if delta_T <= 0.0:
+            raise ModelEvaluationError(
+                "Für desorber_spec_mode='T14' muss T13 > T14 gelten."
+            )
+        if inputs.cp_w_kJkgK <= 0.0:
+            raise ModelEvaluationError("Externer Wärmekapazitätsstrom muss positiv sein.")
+    m13 = Q_des / (inputs.cp_w_kJkgK * delta_T)
+    return m13, T14
+
+def _resolve_evaporator_external_stream(
+    inputs: AWTInputs, Q_evap: float, *, strict: bool, T15: float
+) -> tuple[float, float]:
+    """Löst die Verdampfer-Spezifikation auf interne Arbeitsgrößen auf.
+
+    Rückgabe
+    --------
+    (m15, T16)
+    """
+    if inputs.evaporator_spec_mode == "m15":
+        m15 = float(inputs.m15_spec)  # durch __post_init__ abgesichert
+        if strict:
+            T16 = cooling_outlet_temperature(T15, Q_evap, m15, inputs.cp_w_kJkgK)
+        else:
+            T16 = T15 - Q_evap / (m15 * inputs.cp_w_kJkgK)
+        return m15, T16
+
+    T16 = inputs.T16_spec
+    delta_T = T15 - T16
+    if strict:
+        if delta_T <= 0.0:
+            raise ModelEvaluationError(
+                "Für evaporator_spec_mode='T16' muss T15 > T16 gelten."
+            )
+        if inputs.cp_w_kJkgK <= 0.0:
+            raise ModelEvaluationError("Externer Wärmekapazitätsstrom muss positiv sein.")
+    m15 = Q_evap / (inputs.cp_w_kJkgK * delta_T)
+    return m15, T16
+
+def _resolve_condenser_external_stream(
+    inputs: AWTInputs, Q_cond: float, *, strict: bool
+) -> tuple[float, float]:
+    """Löst die Kondensator-Spezifikation auf interne Arbeitsgrößen auf.
+
+    Rückgabe
+    --------
+    (m17, T18)
+    """
+    if inputs.condenser_spec_mode == "m17":
+        m17 = float(inputs.m17_spec)  # durch __post_init__ abgesichert
+        if strict:
+            T18 = heating_outlet_temperature(inputs.T_17, Q_cond, m17, inputs.cp_w_kJkgK)
+        else:
+            T18 = inputs.T_17 + Q_cond / (m17 * inputs.cp_w_kJkgK)
+        return m17, T18
+
+    T18 = inputs.T18_spec
+    delta_T = T18 - inputs.T_17
+    if strict:
+        if delta_T <= 0.0:
+            raise ModelEvaluationError(
+                "Für condenser_spec_mode='T18' muss T18 > T17 gelten."
+            )
+        if inputs.cp_w_kJkgK <= 0.0:
+            raise ModelEvaluationError("Externer Wärmekapazitätsstrom muss positiv sein.")
+    m17 = Q_cond / (inputs.cp_w_kJkgK * delta_T)
+    return m17, T18
 
 
 def _resolve_evaporator_external_inlet_temperature(inputs: AWTInputs, T14: float | None = None) -> float:
@@ -909,10 +1098,8 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
     Q_cond = m7 * (h7 - h8)
     if strict and Q_cond <= 0.0:
         raise ModelEvaluationError(f"Kondensatorwärmestrom nicht positiv: Q_cond={Q_cond:.6f} kW.")
-    if strict:
-        T18 = heating_outlet_temperature(inputs.T_17, Q_cond, inputs.m_17, inputs.cp_w_kJkgK)
-    else:
-        T18 = inputs.T_17 + Q_cond / (inputs.m_17 * inputs.cp_w_kJkgK)
+    
+    m17, T18 = _resolve_condenser_external_stream(inputs, Q_cond, strict=strict)
     
     # Pinch Kondensator: min beider Enden (Lage hängt vom Betriebspunkt ab)
     dT_cond_hot_end  = T7 - T18   # heiß ein / kalt aus
@@ -946,34 +1133,34 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
     if inputs.uses_serial_evaporator_to_desorber_routing:
         T15_in = _resolve_evaporator_external_inlet_temperature(inputs)
         if strict:
-            T16 = cooling_outlet_temperature(T15_in, Q_evap, inputs.m_15, inputs.cp_w_kJkgK)
+            m15, T16 = _resolve_evaporator_external_stream(inputs, Q_evap, strict=strict, T15=T15_in)
         else:
-            T16 = T15_in - Q_evap / (inputs.m_15 * inputs.cp_w_kJkgK)
+            m15, T16 = _resolve_evaporator_external_stream(inputs, Q_evap, strict=False, T15=T15_in)
         lmtd_evap = _counterflow_lmtd_mode(
             strict=strict, hot_in=T15_in, hot_out=T16, cold_in=T10, cold_out=T10
         )
         T13_in = _resolve_desorber_external_inlet_temperature(inputs, T16)
         if strict:
-            T14 = cooling_outlet_temperature(T13_in, Q_des, inputs.m_13, inputs.cp_w_kJkgK)
+            m13, T14 = _resolve_desorber_external_stream(inputs, Q_des, strict=strict, T13=T13_in)
         else:
-            T14 = T13_in - Q_des / (inputs.m_13 * inputs.cp_w_kJkgK)
+            m13, T14 = _resolve_desorber_external_stream(inputs, Q_des, strict=False, T13=T13_in)
         lmtd_des = _counterflow_lmtd_mode(
             strict=strict, hot_in=T13_in, hot_out=T14, cold_in=T1, cold_out=T6
         )
     else:
         T13_in = _resolve_desorber_external_inlet_temperature(inputs)
         if strict:
-            T14 = cooling_outlet_temperature(T13_in, Q_des, inputs.m_13, inputs.cp_w_kJkgK)
+            m13, T14 = _resolve_desorber_external_stream(inputs, Q_des, strict=strict, T13=T13_in)
         else:
-            T14 = T13_in - Q_des / (inputs.m_13 * inputs.cp_w_kJkgK)
+            m13, T14 = _resolve_desorber_external_stream(inputs, Q_des, strict=False, T13=T13_in)
         lmtd_des = _counterflow_lmtd_mode(
             strict=strict, hot_in=T13_in, hot_out=T14, cold_in=T1, cold_out=T6
         )
         T15_in = _resolve_evaporator_external_inlet_temperature(inputs, T14)
         if strict:
-            T16 = cooling_outlet_temperature(T15_in, Q_evap, inputs.m_15, inputs.cp_w_kJkgK)
+            m15, T16 = _resolve_evaporator_external_stream(inputs, Q_evap, strict=strict, T15=T15_in)
         else:
-            T16 = T15_in - Q_evap / (inputs.m_15 * inputs.cp_w_kJkgK)
+            m15, T16 = _resolve_evaporator_external_stream(inputs, Q_evap, strict=False, T15=T15_in)
         lmtd_evap = _counterflow_lmtd_mode(
             strict=strict, hot_in=T15_in, hot_out=T16, cold_in=T10, cold_out=T10
         )
@@ -1175,13 +1362,16 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
         "p_high_Pa": p_high,
         "pressure_ratio_high_over_low": p_high / p_low,
         "T12_K": T12,
-        "m6_kg_s": m6,
-        "m11_kg_s": m11,
         "T13_K": T13_in,
         "T14_K": T14,
         "T15_K": T15_in,
         "T16_K": T16,
         "T18_K": T18,
+        "m6_kg_s": m6,
+        "m11_kg_s": m11,
+        "m13_kg_s": m13,
+        "m15_kg_s": m15,
+        "m17_kg_s": m17,
         "deltaT_shex_1_K": T3 - T4,
         "deltaT_shex_2_K": T2 - T5,
         "deltaT_des_1_K": T13_in - T6,
@@ -1213,12 +1403,12 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
         "21": _state_dict(T10,         p_Pa=p_high, m_kg_s=m21, h_kJ_kg=h10, x_LiBr_mol=0.0, w_LiBr=0.0, s=s10, e=e10),
         "11": _state_dict(inputs.T_11, m_kg_s=m11),
         "12": _state_dict(T12,         m_kg_s=m11),
-        "13": _state_dict(T13_in,       m_kg_s=inputs.m_13),
-        "14": _state_dict(T14,         m_kg_s=inputs.m_13),
-        "15": _state_dict(T15_in,       m_kg_s=inputs.m_15),
-        "16": _state_dict(T16,         m_kg_s=inputs.m_15),
-        "17": _state_dict(inputs.T_17, m_kg_s=inputs.m_17),
-        "18": _state_dict(T18,         m_kg_s=inputs.m_17),
+        "13": _state_dict(T13_in,       m_kg_s=m13),
+        "14": _state_dict(T14,         m_kg_s=m13),
+        "15": _state_dict(T15_in,       m_kg_s=m15),
+        "16": _state_dict(T16,         m_kg_s=m15),
+        "17": _state_dict(inputs.T_17, m_kg_s=m17),
+        "18": _state_dict(T18,         m_kg_s=m17),
     }
 
     primary_variables = dict(zip(PRIMARY_VARIABLE_NAMES, [T8, T10, x3, x6, x20, T2, T4]))
@@ -1243,9 +1433,9 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
             "Q_abs": Q_abs,
         },
         kpis=kpis,
-        pump_work_kW={
-            "W_sol_pump": W_sol_pump,
-            "W_ref_pump": W_ref_pump,
+        pump_work_W={
+            "W_sol_pump": W_sol_pump*1000,
+            "W_ref_pump": W_ref_pump*1000,
         },
         UA_conversion =  {
             "LMTD_shex": lmtd_shex,
@@ -1423,7 +1613,7 @@ def solve_awt(inputs: AWTInputs, x0: np.ndarray | None = None) -> AWTResult:
             states={},
             heat_flows_kW={},
             kpis={},
-            pump_work_kW={},
+            pump_work_W={},
             UA_conversion={},
             pinch_temperatures_K={},
             compositions={},
@@ -1443,7 +1633,7 @@ def solve_awt(inputs: AWTInputs, x0: np.ndarray | None = None) -> AWTResult:
         states=model.states,
         heat_flows_kW=model.heat_flows_kW,
         kpis=model.kpis,
-        pump_work_kW=model.pump_work_kW,
+        pump_work_W=model.pump_work_W,
         UA_conversion=model.UA_conversion,
         pinch_temperatures_K=model.pinch_temperatures_K,
         compositions=model.compositions,
@@ -1595,9 +1785,10 @@ def trace_model(z: np.ndarray, inputs: AWTInputs) -> ModelTrace:
         stage = "condenser"
         h8 = water_h_kjkg_PQ(p_low, Q=0.0)
         Q_cond = m7 * (h7 - h8)
-        T18 = inputs.T_17 + Q_cond / (inputs.m_17 * inputs.cp_w_kJkgK)
+        m17, T18 = _resolve_condenser_external_stream(inputs, Q_cond, strict=True)
         values["h8_kJ_kg"] = h8
         values["Q_cond_kW"] = Q_cond
+        values["m17_kg_s"] = m17
         values["T18_K"] = T18
         values["deltaT_cond_1_K"] = T7 - T18
         values["deltaT_cond_2_K"] = T8 - inputs.T_17
@@ -1619,14 +1810,15 @@ def trace_model(z: np.ndarray, inputs: AWTInputs) -> ModelTrace:
             T15_in = _resolve_evaporator_external_inlet_temperature(inputs)
         else:
             T13_in = _resolve_desorber_external_inlet_temperature(inputs)
-            T14_seed = T13_in - Q_des / (inputs.m_13 * inputs.cp_w_kJkgK)
+            m13_seed, T14_seed = _resolve_desorber_external_stream(inputs, Q_des, strict=True, T13=T13_in)
             T15_in = _resolve_evaporator_external_inlet_temperature(inputs, T14_seed)
 
         Q_evap = m7 * (h10 - h9)
-        T16 = T15_in - Q_evap / (inputs.m_15 * inputs.cp_w_kJkgK)
+        m15, T16 = _resolve_evaporator_external_stream(inputs, Q_evap, strict=True, T15=T15_in)
         values["Q_evap_kW"] = Q_evap
         values["T15_K"] = T15_in
         values["T16_K"] = T16
+        values["m15_kg_s"] = m15
         values["deltaT_evap_1_K"] = T15_in - T10
         values["deltaT_evap_2_K"] = T16 - T10
 
@@ -1636,12 +1828,13 @@ def trace_model(z: np.ndarray, inputs: AWTInputs) -> ModelTrace:
         stage = "desorber"
         if inputs.uses_serial_evaporator_to_desorber_routing:
             T13_in = _resolve_desorber_external_inlet_temperature(inputs, T16)
-            T14 = T13_in - Q_des / (inputs.m_13 * inputs.cp_w_kJkgK)
+            m13, T14 = _resolve_desorber_external_stream(inputs, Q_des, strict=True, T13=T13_in)
         else:
             T13_in = _resolve_desorber_external_inlet_temperature(inputs)
-            T14 = T13_in - Q_des / (inputs.m_13 * inputs.cp_w_kJkgK)
+            m13, T14 = _resolve_desorber_external_stream(inputs, Q_des, strict=True, T13=T13_in)
         values["T13_K"] = T13_in
         values["T14_K"] = T14
+        values["m13_kg_s"] = m13
         values["deltaT_des_1_K"] = T13_in - T6
         values["deltaT_des_2_K"] = T14 - T1
 
@@ -1809,7 +2002,7 @@ def print_summary(result: AWTResult) -> None:
     print()
 
     print("Pumpenarbeiten [kW]")
-    for key, value in result.pump_work_kW.items():
+    for key, value in result.pump_work_W.items():
         print(f"  {key:12s}: {value:12.6f}")
     print()
 
