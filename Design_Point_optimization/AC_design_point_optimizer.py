@@ -148,8 +148,8 @@ class DesignPointConfig:
     # DE-Tuning
     de_popsize: int = 12
     de_maxiter: int = 60
-    de_workers: int = 1  # >1 = Multiprocessing, siehe Hinweise im Chat/Docstring
-
+    de_workers: int = 1  
+    
     # Konvergenzplot (Stufe 1)
     make_convergence_plot: bool = True
     convergence_plot_path: str = "stage1_convergence.png"
