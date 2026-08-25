@@ -457,7 +457,7 @@ class ModelEvaluation:
     residuals_raw: Dict[str, float]
     residuals_scaled: Dict[str, float]
     diagnostics: Dict[str, float]
-    exergy_kW: Dict[str, float]
+    # exergy_kW: Dict[str, float]
     checks: Dict[str, bool]
     validity_messages: List[str]
 
@@ -478,7 +478,7 @@ class AWTResult:
     residuals_raw: Dict[str, float]
     residuals_scaled: Dict[str, float]
     diagnostics: Dict[str, float]
-    exergy_kW: Dict[str, float]
+    # exergy_kW: Dict[str, float]
     checks: Dict[str, bool]
     validity_messages: List[str]
 
@@ -1235,117 +1235,117 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
     # Elektrische Leistungsaufnahme der Pumpen
     # ------------------------------------------------------------------
     W_AHT_total = 0.005 * (Q_des + Q_evap)  # kW, Pauschalwert für Hilfsenergie der Pumpen
-    # ------------------------------------------------------------------
-    #Exergy Bilanzierung / Refenrenzwerte
-    # ------------------------------------------------------------------
-    def T_mean_entropy(T_in, T_out):
-        if abs(T_out - T_in) < 1e-12:
-            return 0.5 * (T_in + T_out)
-        return (T_out - T_in) / math.log(T_out / T_in)
+    # # ------------------------------------------------------------------
+    # #Exergy Bilanzierung / Refenrenzwerte
+    # # ------------------------------------------------------------------
+    # def T_mean_entropy(T_in, T_out):
+    #     if abs(T_out - T_in) < 1e-12:
+    #         return 0.5 * (T_in + T_out)
+    #     return (T_out - T_in) / math.log(T_out / T_in)
 
-    T_Abs_ext = T_mean_entropy(inputs.T_11, T12)
-    T_Des_ext = T_mean_entropy(T13_in, T14)
-    T_Con_ext = T_mean_entropy(inputs.T_17, T18)
-    T_Eva_ext = T_mean_entropy(T15_in, T16)
+    # T_Abs_ext = T_mean_entropy(inputs.T_11, T12)
+    # T_Des_ext = T_mean_entropy(T13_in, T14)
+    # T_Con_ext = T_mean_entropy(inputs.T_17, T18)
+    # T_Eva_ext = T_mean_entropy(T15_in, T16)
 
-    T_0_K: float = 273.15
-    # T_0_K: float = T_Con_ext
-    p_0_Pa: float = 101325.0
-    x0: float = lp.x_from_w_libr(0.5)
-    h_0_w_kJkg: float = water_h_kjkg_PT(p_0_Pa, T_0_K)
-    h_0_kJkg: float = lp.h_solution_mass_kjkg(T_0_K, x0)
-    s_0_w_kJkgK: float = water_s_kjkgK_PT(p_0_Pa, T_0_K) # 7,8,9,10
-    s_0_kJkgK: float = lp.s_solution_mass_kjkgK(T_0_K, x0) # 7,8,9,10
+    # T_0_K: float = 273.15
+    # # T_0_K: float = T_Con_ext
+    # p_0_Pa: float = 101325.0
+    # x0: float = lp.x_from_w_libr(0.5)
+    # h_0_w_kJkg: float = water_h_kjkg_PT(p_0_Pa, T_0_K)
+    # h_0_kJkg: float = lp.h_solution_mass_kjkg(T_0_K, x0)
+    # s_0_w_kJkgK: float = water_s_kjkgK_PT(p_0_Pa, T_0_K) # 7,8,9,10
+    # s_0_kJkgK: float = lp.s_solution_mass_kjkgK(T_0_K, x0) # 7,8,9,10
 
-    # ------------------------------------------------------------------
-    # Entropische Kennzahlen 
-    # ------------------------------------------------------------------
-    COP_th = Q_abs / (Q_des + Q_evap)
+    # # ------------------------------------------------------------------
+    # # Entropische Kennzahlen 
+    # # ------------------------------------------------------------------
+    # COP_th = Q_abs / (Q_des + Q_evap)
     
-    ECOP = Q_abs*(1.0 - T_0_K / T_Abs_ext) / (Q_des * (1.0 - T_0_K / T_Des_ext) + Q_evap * (1.0 - T_0_K / T_Eva_ext))
+    # ECOP = Q_abs*(1.0 - T_0_K / T_Abs_ext) / (Q_des * (1.0 - T_0_K / T_Des_ext) + Q_evap * (1.0 - T_0_K / T_Eva_ext))
 
-    COP_rev = (Q_des * (1 / T_Con_ext - 1 / T_Des_ext) + Q_evap * (1 / T_Con_ext - 1 / T_Eva_ext)) / ((Q_abs + Q_evap) * (1 / T_Con_ext - 1 / T_Abs_ext))
+    # COP_rev = (Q_des * (1 / T_Con_ext - 1 / T_Des_ext) + Q_evap * (1 / T_Con_ext - 1 / T_Eva_ext)) / ((Q_abs + Q_evap) * (1 / T_Con_ext - 1 / T_Abs_ext))
 
-    Zeta = COP_th / COP_rev
+    # Zeta = COP_th / COP_rev
 
-    # ------------------------------------------------------------------
-    # Exergiebilanz über gesamten Kreislauf
-    # ------------------------------------------------------------------
-    s1= flash["flash_fraction"] * water_s_kjkgK_PT(p_low, T1) + (1.0 - flash["flash_fraction"]) * lp.s_solution_mass_kjkgK(T1, flash["x1_LiBr_mol"])
-    s1_w= water_s_kjkgK_PT(p_low, T1)
-    s1_s= lp.s_solution_mass_kjkgK(T1, flash["x1_LiBr_mol"])
-    e1_w= (flash["h1_flash_kJ_kg"] - h_0_w_kJkg) - T_0_K * (s1_w - s_0_w_kJkgK)
-    e1_s= (flash["h1_sol_kJ_kg"] - h_0_kJkg) - T_0_K * (s1_s - s_0_kJkgK)
-    e1 = flash["flash_fraction"] * e1_w + (1 - flash["flash_fraction"]) * e1_s
+    # # ------------------------------------------------------------------
+    # # Exergiebilanz über gesamten Kreislauf
+    # # ------------------------------------------------------------------
+    # s1= flash["flash_fraction"] * water_s_kjkgK_PT(p_low, T1) + (1.0 - flash["flash_fraction"]) * lp.s_solution_mass_kjkgK(T1, flash["x1_LiBr_mol"])
+    # s1_w= water_s_kjkgK_PT(p_low, T1)
+    # s1_s= lp.s_solution_mass_kjkgK(T1, flash["x1_LiBr_mol"])
+    # e1_w= (flash["h1_flash_kJ_kg"] - h_0_w_kJkg) - T_0_K * (s1_w - s_0_w_kJkgK)
+    # e1_s= (flash["h1_sol_kJ_kg"] - h_0_kJkg) - T_0_K * (s1_s - s_0_kJkgK)
+    # e1 = flash["flash_fraction"] * e1_w + (1 - flash["flash_fraction"]) * e1_s
 
-    s2 = lp.s_solution_mass_kjkgK(T2, x3)
-    e2=(h2 - h_0_kJkg) - T_0_K * (s2 - s_0_kJkgK)
+    # s2 = lp.s_solution_mass_kjkgK(T2, x3)
+    # e2=(h2 - h_0_kJkg) - T_0_K * (s2 - s_0_kJkgK)
 
-    s3 = lp.s_solution_mass_kjkgK(T3, x3)
-    e3 = (h3 - h_0_kJkg) - T_0_K * (s3 - s_0_kJkgK)
+    # s3 = lp.s_solution_mass_kjkgK(T3, x3)
+    # e3 = (h3 - h_0_kJkg) - T_0_K * (s3 - s_0_kJkgK)
 
-    s4 = lp.s_solution_mass_kjkgK(T4, x6)
-    e4 = (h4 - h_0_kJkg) - T_0_K * (s4 - s_0_kJkgK)
+    # s4 = lp.s_solution_mass_kjkgK(T4, x6)
+    # e4 = (h4 - h_0_kJkg) - T_0_K * (s4 - s_0_kJkgK)
 
-    s6 = lp.s_solution_mass_kjkgK(T6, x6)
-    e6=(h6 - h_0_kJkg) - T_0_K * (s6 - s_0_kJkgK)
+    # s6 = lp.s_solution_mass_kjkgK(T6, x6)
+    # e6=(h6 - h_0_kJkg) - T_0_K * (s6 - s_0_kJkgK)
 
-    s5 = s6 # Isentrope Pumpenverdichtung
-    e5=(h5 - h_0_kJkg) - T_0_K * (s5 - s_0_kJkgK)
+    # s5 = s6 # Isentrope Pumpenverdichtung
+    # e5=(h5 - h_0_kJkg) - T_0_K * (s5 - s_0_kJkgK)
 
-    s7 = water_s_kjkgK_PT(p_low, T7) # Konsistent mit Enthalpie berechnung
-    e7=(h7 - h_0_w_kJkg) - T_0_K * (s7 - s_0_w_kJkgK)
+    # s7 = water_s_kjkgK_PT(p_low, T7) # Konsistent mit Enthalpie berechnung
+    # e7=(h7 - h_0_w_kJkg) - T_0_K * (s7 - s_0_w_kJkgK)
 
-    s8 = water_s_kjkgK_PQ(p_low, Q=0.0) # Konsistent mit Enthalpie berechnung
-    e8=(h8 - h_0_w_kJkg) - T_0_K * (s8 - s_0_w_kJkgK)
+    # s8 = water_s_kjkgK_PQ(p_low, Q=0.0) # Konsistent mit Enthalpie berechnung
+    # e8=(h8 - h_0_w_kJkg) - T_0_K * (s8 - s_0_w_kJkgK)
 
-    s9 = s8 # Isentrope Pumpenverdichtung
-    e9=(h9 - h_0_w_kJkg) - T_0_K * (s9 - s_0_w_kJkgK)
+    # s9 = s8 # Isentrope Pumpenverdichtung
+    # e9=(h9 - h_0_w_kJkg) - T_0_K * (s9 - s_0_w_kJkgK)
 
-    s10 = water_s_kjkgK_PQ(p_high, Q=1.0) # Konsistent mit Enthalpie berechnung
-    e10 = (h10 - h_0_w_kJkg) - T_0_K * (s10 - s_0_w_kJkgK)
+    # s10 = water_s_kjkgK_PQ(p_high, Q=1.0) # Konsistent mit Enthalpie berechnung
+    # e10 = (h10 - h_0_w_kJkg) - T_0_K * (s10 - s_0_w_kJkgK)
 
-    E_abs = m10 * e10 + m4 * e4 - m3 * e3 - Q_abs * (1.0 - T_0_K / T_Abs_ext)
-    if strict and E_abs <= 0.0:
-        raise ModelEvaluationError(f"Exergie im Absorber nicht positiv: E_abs={E_abs:.6f} kW.")
+    # E_abs = m10 * e10 + m4 * e4 - m3 * e3 - Q_abs * (1.0 - T_0_K / T_Abs_ext)
+    # if strict and E_abs <= 0.0:
+    #     raise ModelEvaluationError(f"Exergie im Absorber nicht positiv: E_abs={E_abs:.6f} kW.")
     
-    E_evap = m9 * e9 - m10 * e10 + Q_evap * (1.0 - T_0_K / T_Eva_ext)
-    if strict and E_evap <= 0.0:    
-        raise ModelEvaluationError(f"Exergie im Verdampfer nicht positiv: E_evap={E_evap:.6f} kW.")
+    # E_evap = m9 * e9 - m10 * e10 + Q_evap * (1.0 - T_0_K / T_Eva_ext)
+    # if strict and E_evap <= 0.0:    
+    #     raise ModelEvaluationError(f"Exergie im Verdampfer nicht positiv: E_evap={E_evap:.6f} kW.")
     
-    E_cond = m7 * e7 - m8 * e8 - Q_cond * (1.0 - T_0_K / T_Con_ext)
-    if strict and E_cond <= 0.0:    
-        raise ModelEvaluationError(f"Exergie im Kondensator nicht positiv: E_cond={E_cond:.6f} kW.")
+    # E_cond = m7 * e7 - m8 * e8 - Q_cond * (1.0 - T_0_K / T_Con_ext)
+    # if strict and E_cond <= 0.0:    
+    #     raise ModelEvaluationError(f"Exergie im Kondensator nicht positiv: E_cond={E_cond:.6f} kW.")
     
-    E_des = (flash["m1_sol_kg_s"] * e1_s + flash["m1_flash_kg_s"] * e1_w - m7 * e7 - m6 * e6 + Q_des * (1.0 - T_0_K / T_Des_ext))
-    if strict and E_des <= 0.0:
-        raise ModelEvaluationError(f"Exergie im Desorber nicht positiv: E_des={E_des:.6f} kW.")
+    # E_des = (flash["m1_sol_kg_s"] * e1_s + flash["m1_flash_kg_s"] * e1_w - m7 * e7 - m6 * e6 + Q_des * (1.0 - T_0_K / T_Des_ext))
+    # if strict and E_des <= 0.0:
+    #     raise ModelEvaluationError(f"Exergie im Desorber nicht positiv: E_des={E_des:.6f} kW.")
     
-    E_SHEX = m3 * e3 + m5 * e5 - m4 * e4 - m2 * e2
-    if strict and E_SHEX <= 0.0:
-        raise ModelEvaluationError(f"Exergie im SHEX nicht positiv: E_SHEX={E_SHEX:.6f} kW.")
+    # E_SHEX = m3 * e3 + m5 * e5 - m4 * e4 - m2 * e2
+    # if strict and E_SHEX <= 0.0:
+    #     raise ModelEvaluationError(f"Exergie im SHEX nicht positiv: E_SHEX={E_SHEX:.6f} kW.")
     
-    E_sol_pump = m6 * e6 - m5 * e5 + W_sol_pump
-    if strict and E_sol_pump < -1.0:
-        raise ModelEvaluationError(f"Exergie der Lösungspumpe negativ: E_sol_pump={E_sol_pump:.6f} kW.")
+    # E_sol_pump = m6 * e6 - m5 * e5 + W_sol_pump
+    # if strict and E_sol_pump < -1.0:
+    #     raise ModelEvaluationError(f"Exergie der Lösungspumpe negativ: E_sol_pump={E_sol_pump:.6f} kW.")
 
-    E_throttle = (m2 * e2 - flash["m1_sol_kg_s"] * e1_s - flash["m1_flash_kg_s"] * e1_w)
-    if strict and E_throttle < 0.0:
-        raise ModelEvaluationError(f"Exergie der Drossel negativ: E_throttle={E_throttle:.6f} kW.")
+    # E_throttle = (m2 * e2 - flash["m1_sol_kg_s"] * e1_s - flash["m1_flash_kg_s"] * e1_w)
+    # if strict and E_throttle < 0.0:
+    #     raise ModelEvaluationError(f"Exergie der Drossel negativ: E_throttle={E_throttle:.6f} kW.")
     
-    E_ref_pump = m8 * e8 - m9 * e9 + W_ref_pump
-    if strict and E_ref_pump < -1.0:
-        raise ModelEvaluationError(f"Exergie der Kältemittelpumpe negativ: E_ref_pump={E_ref_pump:.6f} kW.")
+    # E_ref_pump = m8 * e8 - m9 * e9 + W_ref_pump
+    # if strict and E_ref_pump < -1.0:
+    #     raise ModelEvaluationError(f"Exergie der Kältemittelpumpe negativ: E_ref_pump={E_ref_pump:.6f} kW.")
     
-    E_total = E_abs + E_evap + E_cond + E_des + E_SHEX + E_sol_pump + E_throttle + E_ref_pump
-    perc_E_abs = E_abs / E_total * 100.0 if abs(E_total) > 1.0e-12 else float("nan")
-    perc_E_evap = E_evap / E_total * 100.0 if abs(E_total) > 1.0e-12 else float("nan")
-    perc_E_cond = E_cond / E_total * 100.0 if abs(E_total) > 1.0e-12 else float("nan")
-    perc_E_des = E_des / E_total * 100.0 if abs(E_total) > 1.0e-12 else float("nan")
-    perc_E_SHEX = E_SHEX / E_total * 100.0 if abs(E_total) > 1.0e-12 else float("nan")
-    perc_E_sol_pump = E_sol_pump / E_total * 100.0 if abs(E_total) > 1.0e-12 else float("nan")
-    perc_E_throttle = E_throttle / E_total * 100.0 if abs(E_total) > 1.0e-12 else float("nan")
-    perc_E_ref_pump = E_ref_pump / E_total * 100.0 if abs(E_total) > 1.0e-12 else float("nan")
+    # E_total = E_abs + E_evap + E_cond + E_des + E_SHEX + E_sol_pump + E_throttle + E_ref_pump
+    # perc_E_abs = E_abs / E_total * 100.0 if abs(E_total) > 1.0e-12 else float("nan")
+    # perc_E_evap = E_evap / E_total * 100.0 if abs(E_total) > 1.0e-12 else float("nan")
+    # perc_E_cond = E_cond / E_total * 100.0 if abs(E_total) > 1.0e-12 else float("nan")
+    # perc_E_des = E_des / E_total * 100.0 if abs(E_total) > 1.0e-12 else float("nan")
+    # perc_E_SHEX = E_SHEX / E_total * 100.0 if abs(E_total) > 1.0e-12 else float("nan")
+    # perc_E_sol_pump = E_sol_pump / E_total * 100.0 if abs(E_total) > 1.0e-12 else float("nan")
+    # perc_E_throttle = E_throttle / E_total * 100.0 if abs(E_total) > 1.0e-12 else float("nan")
+    # perc_E_ref_pump = E_ref_pump / E_total * 100.0 if abs(E_total) > 1.0e-12 else float("nan")
     
     # ------------------------------------------------------------------
     # 13) Residuen des 8x8-Systems
@@ -1410,35 +1410,25 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
         "m13_kg_s": m13,
         "m15_kg_s": m15,
         "m17_kg_s": m17,
-        # "deltaT_shex_1_K": T3 - T4,
-        # "deltaT_shex_2_K": T2 - T5,
-        # "deltaT_des_1_K": T13_in - T6,
-        # "deltaT_des_2_K": T14 - T1,
-        # "deltaT_cond_1_K": T7 - T18,
-        # "deltaT_cond_2_K": T8 - inputs.T_17,
-        # "deltaT_evap_1_K": T15_in - T10,
-        # "deltaT_evap_2_K": T16 - T10,
-        # "deltaT_abs_1_K": T20 - T12,
-        # "deltaT_abs_2_K": T3 - inputs.T_11,
     }
 
     # ------------------------------------------------------------------
     # 15) Zustandsdictionary
     # ------------------------------------------------------------------
     states = {
-        "1":  _state_dict(T1,          p_Pa=p_low,  m_kg_s=m1,  h_kJ_kg=h1,  x_LiBr_mol=x3,  w_LiBr=w3, s=s1, e=e1),
-        "2":  _state_dict(T2,          p_Pa=p_high, m_kg_s=m2,  h_kJ_kg=h2,  x_LiBr_mol=x3,  w_LiBr=w3, s=s2, e=e2),
-        "3":  _state_dict(T3,          p_Pa=p_high, m_kg_s=m3,  h_kJ_kg=h3,  x_LiBr_mol=x3,  w_LiBr=w3, s=s3, e=e3),
-        "4":  _state_dict(T4,          p_Pa=p_high, m_kg_s=m4,  h_kJ_kg=h4,  x_LiBr_mol=x6,  w_LiBr=w6, s=s4, e=e4),
-        "5":  _state_dict(T5,          p_Pa=p_high, m_kg_s=m5,  h_kJ_kg=h5,  x_LiBr_mol=x6,  w_LiBr=w6, s=s5, e=e5),
-        "6":  _state_dict(T6,          p_Pa=p_low,  m_kg_s=m6,  h_kJ_kg=h6,  x_LiBr_mol=x6,  w_LiBr=w6, s=s6, e=e6),
-        "7":  _state_dict(T7,          p_Pa=p_low,  m_kg_s=m7,  h_kJ_kg=h7,  x_LiBr_mol=0.0, w_LiBr=0.0, s=s7, e=e7),
-        "8":  _state_dict(T8,          p_Pa=p_low,  m_kg_s=m8,  h_kJ_kg=h8,  x_LiBr_mol=0.0, w_LiBr=0.0, s=s8, e=e8),
-        "9":  _state_dict(T9,          p_Pa=p_high, m_kg_s=m9,  h_kJ_kg=h9,  x_LiBr_mol=0.0, w_LiBr=0.0, s=s9, e=e9),
-        "10": _state_dict(T10,         p_Pa=p_high, m_kg_s=m10, h_kJ_kg=h10, x_LiBr_mol=0.0, w_LiBr=0.0, s=s10, e=e10),
-        "19": _state_dict(T10,         p_Pa=p_high, m_kg_s=m19, h_kJ_kg=h10, x_LiBr_mol=0.0, w_LiBr=0.0, s=s10, e=e10),
-        "20": _state_dict(T20,         p_Pa=p_high, m_kg_s=m20, h_kJ_kg=h20, x_LiBr_mol=x20, w_LiBr=w20, s=0.0, e=0.0),
-        "21": _state_dict(T10,         p_Pa=p_high, m_kg_s=m21, h_kJ_kg=h10, x_LiBr_mol=0.0, w_LiBr=0.0, s=s10, e=e10),
+        "1":  _state_dict(T1,          p_Pa=p_low,  m_kg_s=m1,  h_kJ_kg=h1,  x_LiBr_mol=x3,  w_LiBr=w3),
+        "2":  _state_dict(T2,          p_Pa=p_high, m_kg_s=m2,  h_kJ_kg=h2,  x_LiBr_mol=x3,  w_LiBr=w3),
+        "3":  _state_dict(T3,          p_Pa=p_high, m_kg_s=m3,  h_kJ_kg=h3,  x_LiBr_mol=x3,  w_LiBr=w3),
+        "4":  _state_dict(T4,          p_Pa=p_high, m_kg_s=m4,  h_kJ_kg=h4,  x_LiBr_mol=x6,  w_LiBr=w6),
+        "5":  _state_dict(T5,          p_Pa=p_high, m_kg_s=m5,  h_kJ_kg=h5,  x_LiBr_mol=x6,  w_LiBr=w6),
+        "6":  _state_dict(T6,          p_Pa=p_low,  m_kg_s=m6,  h_kJ_kg=h6,  x_LiBr_mol=x6,  w_LiBr=w6),
+        "7":  _state_dict(T7,          p_Pa=p_low,  m_kg_s=m7,  h_kJ_kg=h7,  x_LiBr_mol=0.0, w_LiBr=0.0),
+        "8":  _state_dict(T8,          p_Pa=p_low,  m_kg_s=m8,  h_kJ_kg=h8,  x_LiBr_mol=0.0, w_LiBr=0.0),
+        "9":  _state_dict(T9,          p_Pa=p_high, m_kg_s=m9,  h_kJ_kg=h9,  x_LiBr_mol=0.0, w_LiBr=0.0),
+        "10": _state_dict(T10,         p_Pa=p_high, m_kg_s=m10, h_kJ_kg=h10, x_LiBr_mol=0.0, w_LiBr=0.0),
+        "19": _state_dict(T10,         p_Pa=p_high, m_kg_s=m19, h_kJ_kg=h10, x_LiBr_mol=0.0, w_LiBr=0.0),
+        "20": _state_dict(T20,         p_Pa=p_high, m_kg_s=m20, h_kJ_kg=h20, x_LiBr_mol=x20, w_LiBr=w20),
+        "21": _state_dict(T10,         p_Pa=p_high, m_kg_s=m21, h_kJ_kg=h10, x_LiBr_mol=0.0, w_LiBr=0.0),
         "11": _state_dict(inputs.T_11, m_kg_s=m11),
         "12": _state_dict(T12,         m_kg_s=m11),
         "13": _state_dict(T13_in,       m_kg_s=m13),
@@ -1521,27 +1511,27 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
             "w20_LiBr": w20,
             "beta_m19_over_m10": beta,
         },
-        exergy_kW={
-            "E_abs": f"{E_abs:.3f} kW ({perc_E_abs:.1f} %)",
-            "E_des": f"{E_des:.3f} kW ({perc_E_des:.1f} %)",
-            "E_cond": f"{E_cond:.3f} kW ({perc_E_cond:.1f} %)",
-            "E_evap": f"{E_evap:.3f} kW ({perc_E_evap:.1f} %)",
-            "E_SHEX": f"{E_SHEX:.3f} kW ({perc_E_SHEX:.1f} %)",
-            "E_throttle": f"{E_throttle:.3f} kW ({perc_E_throttle:.1f} %)",
-            "E_sol_pump": f"{E_sol_pump:.3f} kW ({perc_E_sol_pump:.1f} %)",
-            "E_ref_pump": f"{E_ref_pump:.3f} kW ({perc_E_ref_pump:.1f} %)",
-            "Exergy_efficiency": ECOP,
-            "COP_rev": COP_rev,
-            "Zeta": Zeta,
-            "T_Abs_ext_K": T_Abs_ext - 273.15,
-            "T_Des_ext_K": T_Des_ext - 273.15,
-            "T_Con_ext_K": T_Con_ext - 273.15,
-            "T_Eva_ext_K": T_Eva_ext - 273.15,
-            "h_0_kJkg": h_0_kJkg,
-            "h_0_w_kJkg": h_0_w_kJkg,
-            "s_0_kJkgK": s_0_kJkgK,
-            "s_0_w_kJkgK": s_0_w_kJkgK
-        },
+        # exergy_kW={
+        #     "E_abs": f"{E_abs:.3f} kW ({perc_E_abs:.1f} %)",
+        #     "E_des": f"{E_des:.3f} kW ({perc_E_des:.1f} %)",
+        #     "E_cond": f"{E_cond:.3f} kW ({perc_E_cond:.1f} %)",
+        #     "E_evap": f"{E_evap:.3f} kW ({perc_E_evap:.1f} %)",
+        #     "E_SHEX": f"{E_SHEX:.3f} kW ({perc_E_SHEX:.1f} %)",
+        #     "E_throttle": f"{E_throttle:.3f} kW ({perc_E_throttle:.1f} %)",
+        #     "E_sol_pump": f"{E_sol_pump:.3f} kW ({perc_E_sol_pump:.1f} %)",
+        #     "E_ref_pump": f"{E_ref_pump:.3f} kW ({perc_E_ref_pump:.1f} %)",
+        #     "Exergy_efficiency": ECOP,
+        #     "COP_rev": COP_rev,
+        #     "Zeta": Zeta,
+        #     "T_Abs_ext_K": T_Abs_ext - 273.15,
+        #     "T_Des_ext_K": T_Des_ext - 273.15,
+        #     "T_Con_ext_K": T_Con_ext - 273.15,
+        #     "T_Eva_ext_K": T_Eva_ext - 273.15,
+        #     "h_0_kJkg": h_0_kJkg,
+        #     "h_0_w_kJkg": h_0_w_kJkg,
+        #     "s_0_kJkgK": s_0_kJkgK,
+        #     "s_0_w_kJkgK": s_0_w_kJkgK
+        # },
         flash_outputs=flash_outputs,
         residuals_raw=residuals_raw,
         residuals_scaled=residuals_scaled,
@@ -1662,7 +1652,7 @@ def solve_awt(inputs: AWTInputs, x0: np.ndarray | None = None) -> AWTResult:
             residuals_raw={},
             residuals_scaled={},
             diagnostics={},
-            exergy_kW={},
+            # exergy_kW={},
             checks={},
             validity_messages=[],
         )
@@ -1682,7 +1672,7 @@ def solve_awt(inputs: AWTInputs, x0: np.ndarray | None = None) -> AWTResult:
         residuals_raw=model.residuals_raw,
         residuals_scaled=model.residuals_scaled,
         diagnostics=model.diagnostics,
-        exergy_kW=model.exergy_kW,
+        # exergy_kW=model.exergy_kW,
         checks=model.checks,
         validity_messages=model.validity_messages,
     )
@@ -2088,10 +2078,10 @@ def print_summary(result: AWTResult) -> None:
         print(_format_state_line(state_id, result.states[state_id]))
     print()
 
-    print("Exergiebezogene Diagnostik [kW]")
-    for key, value in result.exergy_kW.items():
-        print(f"  {key:35s}: {value}")
-    print()
+    # print("Exergiebezogene Diagnostik [kW]")
+    # for key, value in result.exergy_kW.items():
+    #     print(f"  {key:35s}: {value}")
+    # print()
 
     print("Validitätsmeldungen")
     for msg in result.validity_messages:

@@ -42,10 +42,8 @@ DESORBER_EVAPORATOR_ROUTING_MODE = "parallel"
 
 def build_example_inputs() -> AWTInputs:
     common_kwargs = dict(
-        T_11_C=75.0,   # 135, 60, 80
-        #T_13_C=None,   # 120, 60
-        #T_15_C=None,   # 120, 60
-        T_17_C=20.0,   # 30, 20, 20
+        T_11_C=79.0,   # 135, 60, 80
+        T_17_C=14.0,   # 30, 20, 20
         m_13=20.270871,      # 4, 0.2, 4
         m_15=21.525859,      # 4, 0.2, 4
         m_17=21.326820,      # 4, 0.2, 4
@@ -71,8 +69,8 @@ def build_example_inputs() -> AWTInputs:
         )
 
     if DESORBER_EVAPORATOR_ROUTING_MODE == "parallel":
-        common_kwargs["T_13_C"] = 60.0   # 120,60, 65
-        common_kwargs["T_15_C"] = 60.0  # 120, 60, 65
+        common_kwargs["T_13_C"] = 58.0   # 120,60, 65
+        common_kwargs["T_15_C"] = 58.0  # 120, 60, 65
     elif DESORBER_EVAPORATOR_ROUTING_MODE == "series_desorber_to_evaporator":
         common_kwargs["T_13_C"] = 120.0 # 120, 65
         common_kwargs["T_15_C"] = None
@@ -118,13 +116,13 @@ if __name__ == "__main__":
     x0 = primary_temperatures_C_to_K(
         np.array(
             [
-                26.858334,   # T8  [°C] 55, 29.98, 30
-                51.310137,   # T10 [°C] 101, 50.02, 55
-                0.169556,    # x3  [-] 0.23, 0.15, 0.23
-                0.186280,    # x6  [-] 0.27, 0.18, 0.27
-                0.185754,   # x20 [-] 0.26, 0.17, 0.26
-                60.593300,   # T2  [°C] 121, 59.50, 70
-                71.019864,   # T4  [°C] 150, 68.98, 80
+                26.551060,   # T8  [°C] 55, 29.98, 30
+                50.886401,   # T10 [°C] 101, 50.02, 55
+                0.184219,    # x3  [-] 0.23, 0.15, 0.23
+                0.197863,    # x6  [-] 0.27, 0.18, 0.27
+                0.196965,   # x20 [-] 0.26, 0.17, 0.26
+                63.508270,   # T2  [°C] 121, 59.50, 70
+                75.393280,   # T4  [°C] 150, 68.98, 80
             ],
             dtype=float,
         )

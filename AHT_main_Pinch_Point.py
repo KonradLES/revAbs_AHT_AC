@@ -63,8 +63,8 @@ DESORBER_EVAPORATOR_ROUTING_MODE = "parallel"
 
 def build_example_inputs() -> AWTInputs:
     common_kwargs = dict(
-        T_11_C=70.0,   # 135, 60, 80
-        T_17_C=20.0,   # 30, 20, 20
+        T_11_C=79.0,   # 135, 60, 80
+        T_17_C=14.0,   # 30, 20, 20
         dT_min_shex=7,    # 4.3
         dT_min_des=17,     # 6.3
         dT_min_cond=22,   # 25.1
@@ -92,35 +92,35 @@ def build_example_inputs() -> AWTInputs:
     if ABSORBER_SPEC_MODE == "m11":
         spec_kwargs["m11_spec"] = 4  # 4, 0.2
     elif ABSORBER_SPEC_MODE == "T12":
-        spec_kwargs["T12_spec_C"] = 73.02  # 146.02, 80
+        spec_kwargs["T12_spec_C"] = 83.02  # 146.02, 80
     else:
         raise ValueError("ABSORBER_SPEC_MODE muss 'm11' oder 'T12' sein.")
 
     if DESORBER_SPEC_MODE == "m13":
         spec_kwargs["m13_spec"] = 4  
     elif DESORBER_SPEC_MODE == "T14":
-        spec_kwargs["T14_spec_C"] = 60.92  # 108.92
+        spec_kwargs["T14_spec_C"] = 55.92  # 108.92
     else:
         raise ValueError("DESORBER_SPEC_MODE muss 'm13' oder 'T14' sein.")
         
     if EVAPORATOR_SPEC_MODE == "m15":
         spec_kwargs["m15_spec"] = 4 
     elif EVAPORATOR_SPEC_MODE == "T16":
-        spec_kwargs["T16_spec_C"] = 60.80 # 108.80
+        spec_kwargs["T16_spec_C"] = 55.80 # 108.80
     else:
         raise ValueError("EVAPORATOR_SPEC_MODE muss 'm15' oder 'T16' sein.")
     
     if CONDENSER_SPEC_MODE == "m17":
         spec_kwargs["m17_spec"] = 4  
     elif CONDENSER_SPEC_MODE == "T18":
-        spec_kwargs["T18_spec_C"] = 23.26  # 41.26
+        spec_kwargs["T18_spec_C"] = 18.26  # 41.26
     else:
         raise ValueError("CONDENSER_SPEC_MODE muss 'm17' oder 'T18' sein.")
     
 
     if DESORBER_EVAPORATOR_ROUTING_MODE == "parallel":
-        common_kwargs["T_13_C"] = 65.0   # 120,60, 65
-        common_kwargs["T_15_C"] = 65.0  # 120, 60, 65
+        common_kwargs["T_13_C"] = 60.0   # 120,60, 65
+        common_kwargs["T_15_C"] = 60.0  # 120, 60, 65
     elif DESORBER_EVAPORATOR_ROUTING_MODE == "series_desorber_to_evaporator":
         common_kwargs["T_13_C"] = 120.0 # 120, 65
         common_kwargs["T_15_C"] = None
@@ -150,13 +150,13 @@ if __name__ == "__main__":
     x0 = primary_temperatures_C_to_K(
         np.array(
             [
-                32.338035,   # T8  [°C] 55, 29.98, 30
-                51.367042,   # T10 [°C] 101, 50.02, 55
-                0.165741,    # x3  [-] 0.23, 0.15, 0.23
-                0.177292,    # x6  [-] 0.27, 0.18, 0.27
-                0.175738,   # x20 [-] 0.26, 0.17, 0.26
-                64.250158,   # T2  [°C] 121, 59.50, 70
-                69.751554,   # T4  [°C] 150, 68.98, 80
+                26.551060,   # T8  [°C] 55, 29.98, 30
+                50.886401,   # T10 [°C] 101, 50.02, 55
+                0.184219,    # x3  [-] 0.23, 0.15, 0.23
+                0.197863,    # x6  [-] 0.27, 0.18, 0.27
+                0.196965,   # x20 [-] 0.26, 0.17, 0.26
+                63.508270,   # T2  [°C] 121, 59.50, 70
+                75.393280,   # T4  [°C] 150, 68.98, 80
             ],
             dtype=float,
         )
