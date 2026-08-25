@@ -14,30 +14,27 @@ WICHTIGER UNTERSCHIED zur Kältemaschine -- vertauschte Rollen der Apparate:
     vertauschten Apparaten.
   - Kondensator rückkühlt auf niedrigem Temperaturniveau (T_17_C -> T18_spec_C).
   - cycle_scale_spec_mode="Qabs" mit Qabs_spec_kW: die Design-Nutzwärmeleistung
-    (Analog zu Qevap_spec_kW bei der Kältemaschine) wird am ABSORBER vorgegeben,
-    nicht am Verdampfer.
+    (Analog zu Qevap_spec_kW bei der Kältemaschine) wird am ABSORBER vorgegeben.
 
-ANNAHMEN (siehe Chat-Nachricht) -- unbedingt beim ersten Testlauf prüfen:
-  1. AHT_Pinch_Point stellt bounds(inputs) und initial_guess(inputs) mit
-     identischer Signatur wie AC_Pinch_Point bereit.
-  2. Die Ergebnisstruktur (solve_info, checks, UA_conversion, diagnostics,
-     states, kpis) ist analog zu AC_Pinch_Point/AWTResult aufgebaut.
-  3. Der interne, gepumpte Lösungsmassenstrom heißt vermutlich "m6"
-     (passend zu cycle_scale_spec_mode="m6") -- wird defensiv gesucht,
-     nicht hart vorausgesetzt (siehe _get_internal_solution_flow()).
-  4. UA_conversion enthält dieselben Schlüssel wie bei der Kältemaschine:
-     UA_shex, UA_des, UA_cond, UA_evap, UA_abs.
+Stufe 2 (Teillast-Verifikation, AHT_UA_LMTD)
+---------------------------------------------
+Analog zur Kältemaschine: UA-Werte und externe Massenströme aus Stufe 1 werden
+eingefroren, für definierte Randbedingungs-Szenarien wird NUR simuliert, NICHT
+erneut optimiert. Per config.run_stage2 an-/abschaltbar.
 
-Stufe 2 (Teillast-Verifikation mit einem AHT-UA-Modell) ist hier noch NICHT
-enthalten -- sobald ein AHT_UA_LMTD.py-Äquivalent existiert, kann das analog
-zur Kältemaschine ergänzt werden.
+ANNAHME (bitte prüfen, da mir Models.AHT_UA_LMTD nicht vorliegt): Struktur
+analog zu Models.AC_UA_LMTD -- Desorber/Verdampfer/Kondensator als feste
+Massenstrom-Kwargs (m_13, m_15, m_17), NUR der Absorber (designbestimmende
+Apparategruppe) mit spec_mode "m11"/"T12" wählbar, cycle_scale_spec_mode="m6"
+mit m6_spec. Falls falsch: bitte Rückmeldung bzw. Quelltext/Main-Skript von
+AHT_UA_LMTD.py schicken, dann passe ich build_ua_inputs() exakt an.
 """
 
 from __future__ import annotations
 
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -59,10 +56,19 @@ from Models.AHT_Pinch_Point import (
     solve_awt,
 )
 
+try:
+    from Models.AHT_UA_LMTD import (
+        AWTInputs as UAInputs,
+        solve_awt as solve_ua,
+    )
+    UA_MODEL_AVAILABLE = True
+except ImportError as exc:  # pragma: no cover
+    UA_MODEL_AVAILABLE = False
+    _ua_import_error = exc
+
 
 def _clip_to_bounds(z: np.ndarray, inputs: AWTInputs) -> np.ndarray:
-    """Sicherheitsnetz: clippt einen Startvektor defensiv auf die Modell-Bounds
-    (siehe gleichnamige Funktion / Bugfix-Historie im AKM-Optimierer)."""
+    """Sicherheitsnetz: clippt einen Startvektor defensiv auf die Modell-Bounds."""
     lower, upper = awt_bounds(inputs)
     eps = 1.0e-6
     return np.clip(z, lower + eps, upper - eps)
@@ -74,83 +80,100 @@ def _clip_to_bounds(z: np.ndarray, inputs: AWTInputs) -> np.ndarray:
 
 @dataclass
 class DesignPointConfig:
-    """Fixierte Randbedingungen des AWT-Designpunkts.
-
-    Defaultwerte aus deinem main-Skript übernommen (T_11_C=135 etc.).
-    """
+    """Fixierte Randbedingungen des AWT-Designpunkts."""
 
     # Externe Eintrittstemperaturen [°C]
-    T_11_C: float = 135.0   # Nutzwärmesenke (Absorber), kalter Eintritt
-    T_13_C: float = 120.0   # Abwärmequelle (Desorber/Verdampfer, routing-abhängig)
-    T_15_C: float = 120.0   # Abwärmequelle (Desorber/Verdampfer, routing-abhängig)
-    T_17_C: float = 30.0    # Rückkühlung (Kondensator), kalter Eintritt
+    T_11_C: float = 70.0    # Nutzwärmesenke (Absorber), kalter Eintritt
+    T_13_C: float = 55.0    # Abwärmequelle (Desorber/Verdampfer, routing-abhängig)
+    T_15_C: float = 55.0    # Abwärmequelle (Desorber/Verdampfer, routing-abhängig)
+    T_17_C: float = 20.0    # Rückkühlung (Kondensator), kalter Eintritt
 
     # Externe Austrittstemperatur-Spezifikationen [°C]
-    T12_spec_C: float = 146.02   # Nutzwärmesenke, Austritt (Absorber)
-    T14_spec_C: float = 108.92   # Abwärmequelle, Austritt (Desorber)
-    T16_spec_C: float = 108.80   # Abwärmequelle, Austritt (Verdampfer)
-    T18_spec_C: float = 41.26    # Rückkühlung, Austritt (Kondensator)
+    T12_spec_C: float = 80.0    # Nutzwärmesenke, Austritt (Absorber)
+    T14_spec_C: float = 48.0    # Abwärmequelle, Austritt (Desorber)
+    T16_spec_C: float = 48.0    # Abwärmequelle, Austritt (Verdampfer)
+    T18_spec_C: float = 26.0    # Rückkühlung, Austritt (Kondensator)
 
     # Design-Nutzwärmeleistung [kW] (am Absorber, NICHT am Verdampfer!)
-    Qabs_spec_kW: float = 184.4
+    Qabs_spec_kW: float = 500.0
 
     desorber_evaporator_routing_mode: str = "parallel"
     cp_w_kJkgK: float = 4.18
     desorber_vapor_superheat_K: float = 0.0
 
-    # Untere Schranken der Pinch-Temperaturdifferenzen [K].
-    # Bewusst generisch niedrig (3 K) gelassen -- dein main-Skript zeigt, dass
-    # Kondensator/Verdampfer/Absorber beim AWT typischerweise deutlich größere
-    # Pinches brauchen als bei der Kältemaschine (Beispielwerte bis ~25 K).
-    # Der Optimierer soll das selbst finden, nicht durch eine zu enge Floor
-    # künstlich verzerrt werden.
     dT_floor: Dict[str, float] = field(
         default_factory=lambda: {
-            "shex": 3.0,
-            "des": 3.0,
-            "cond": 3.0,
-            "evap": 3.0,
-            "abs": 3.0,
+            "shex": 3.0, "des": 3.0, "cond": 3.0, "evap": 3.0, "abs": 3.0,
         }
     )
-    # Obere Suchgrenze = floor + dT_search_range. Größer als beim AKM-Optimierer
-    # (20 K), weil deine Beispielwerte für cond/evap/abs schon bis ~25 K reichen.
     dT_search_range: float = 30.0
 
-    # Gewichtung der UA-Werte in der Zielfunktion (Standard: alle gleich, ΣUA)
     ua_weights: Dict[str, float] = field(
         default_factory=lambda: {
             "shex": 1.0, "des": 1.0, "cond": 1.0, "evap": 1.0, "abs": 1.0,
         }
     )
 
-    # Solver-Einstellungen während der Optimierungsphase (siehe Erklärung im
-    # AKM-Optimierer-Chat: gelockert für Stufe 1a/1b, strenger Defaultwert für
-    # den finalen Präzisions-Solve). Werte übernommen aus dem validierten,
-    # NICHT übermäßig aggressiven Setup der Kältemaschine.
     opt_solver_tol: float = 1.0e-6
     opt_max_nfev: int = 150
 
-    # DE-Tuning
     de_popsize: int = 12
     de_maxiter: int = 60
     de_workers: int = 1
 
-    # Early Stopping -- konservativ eingestellt (siehe Lernerfahrung aus dem
-    # AKM-Optimierer: zu kurze patience/zu hohe min_improvement kann echte,
-    # spätere Verbesserungen abschneiden).
     de_patience: Optional[int] = 25
     de_min_improvement: float = 0.01  # kW/K
 
-    # Penalty für nicht-konvergente/unplausible Punkte -- bewusst moderat
-    # skaliert (nicht 1e4), damit DE's eigenes tol-Konvergenzkriterium nicht
-    # von einem einzigen Ausreißer dominiert wird.
     penalty_base: float = 200.0
     penalty_residual_weight: float = 20.0
 
-    # Konvergenzplot
     make_convergence_plot: bool = True
     convergence_plot_path: str = "stage1_convergence_AHT.png"
+
+    # Optionaler manueller Startvektor (interne Modell-Einheiten, K/-, Reihenfolge
+    # wie primary_variables) als Fallback für den ALLERERSTEN Optimierer-Aufruf,
+    # bevor der Warmstart-Cache befüllt ist. Sinnvoll bei schwierigen/neuen
+    # Betriebsbedingungen, wenn du bereits eine handgetunte, konvergierende
+    # Lösung für einen ähnlichen Betriebspunkt kennst (z.B. aus deinem
+    # main-Skript oder aus quick_feasibility_probe()) -- deutlich zuverlässiger
+    # als die generische initial_guess()-Heuristik des Modells.
+    x0_override: Optional[np.ndarray] = None
+
+    # Optionale HARTE obere Schranken je Wärmeübertrager (überschreibt
+    # dT_floor[key] + dT_search_range für die genannten Keys). Nützlich, wenn
+    # die Optimierung an der oberen Grenze "klebt" (siehe Diagnose-Hinweis am
+    # Ende von optimize_design_point) -- das zeigt einen zu engen Suchraum für
+    # DIESEN Betriebspunkt an, nicht zwingend ein Warmstart-Problem.
+    # Beispiel: dT_upper={"cond": 50.0, "evap": 50.0}
+    dT_upper: Optional[Dict[str, float]] = None
+
+    # Schneller Feasibility-Test vor der vollen Optimierung (siehe
+    # quick_feasibility_probe) -- kostet nur Sekunden bis wenige Minuten und
+    # hätte den 19h-Fehlschlag früh erkennbar gemacht.
+    run_feasibility_probe: bool = True
+
+    # Stufe 2: Teillast-Verifikation an/aus. Wenn False, wird verify_part_load()
+    # gar nicht erst aufgerufen (spart die paar Sekunden, hauptsächlich nützlich
+    # während du an Stufe 1 experimentierst und Stufe 2 gerade nicht brauchst).
+    run_stage2: bool = True
+
+
+@dataclass
+class PartLoadScenario:
+    """Ein zu verifizierender Randbetriebspunkt (Stufe 2). WERTE ANPASSEN --
+    aktuell nur Platzhalter relativ zum Nominal-Designpunkt oben."""
+
+    name: str
+    T_11_C: float
+    T_13_C: float
+    T_15_C: float
+    T_17_C: float
+
+
+DEFAULT_SCENARIOS: List[PartLoadScenario] = [
+    PartLoadScenario(name="Extremfall_kalt", T_11_C=70.0, T_13_C=55.0, T_15_C=55.0, T_17_C=15.0),
+    PartLoadScenario(name="Extremfall_warm", T_11_C=70.0, T_13_C=62.0, T_15_C=62.0, T_17_C=25.0),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -247,13 +270,25 @@ class DEProgress:
 
 
 class WarmStartCache:
-    """Hält den letzten konvergierten Primärvektor für Warmstarts."""
+    """Hält den letzten konvergierten Primärvektor für Warmstarts.
 
-    def __init__(self) -> None:
+    fallback: optionaler manueller Startvektor (config.x0_override), der
+    verwendet wird, solange noch kein konvergierter Punkt im Cache ist --
+    zuverlässiger als die generische initial_guess()-Heuristik, wenn du
+    bereits eine handgetunte Lösung für einen ähnlichen Betriebspunkt kennst.
+    """
+
+    def __init__(self, fallback: Optional[np.ndarray] = None) -> None:
         self.z: Optional[np.ndarray] = None
+        self.fallback = fallback
 
     def get(self, inputs: AWTInputs) -> np.ndarray:
-        z = self.z if self.z is not None else awt_initial_guess(inputs)
+        if self.z is not None:
+            z = self.z
+        elif self.fallback is not None:
+            z = self.fallback
+        else:
+            z = awt_initial_guess(inputs)
         return _clip_to_bounds(z, inputs)
 
     def update(self, z: np.ndarray) -> None:
@@ -345,10 +380,15 @@ def design_point_objective(
 
 
 def _theta_bounds(config: DesignPointConfig) -> List[tuple]:
-    return [
-        (config.dT_floor[key], config.dT_floor[key] + config.dT_search_range)
-        for key in THETA_ORDER
-    ]
+    result = []
+    for key in THETA_ORDER:
+        lo = config.dT_floor[key]
+        if config.dT_upper and key in config.dT_upper:
+            hi = config.dT_upper[key]
+        else:
+            hi = lo + config.dT_search_range
+        result.append((lo, hi))
+    return result
 
 
 def plot_convergence(stats: EvalStats, path: str) -> None:
@@ -383,7 +423,7 @@ def plot_convergence(stats: EvalStats, path: str) -> None:
 def optimize_design_point(
     config: DesignPointConfig, *, seed: int = 42, verbose: bool = True
 ) -> tuple[np.ndarray, "object", EvalStats]:
-    cache = WarmStartCache()
+    cache = WarmStartCache(fallback=config.x0_override)
     stats = EvalStats()
     bounds = _theta_bounds(config)
 
@@ -449,10 +489,18 @@ def optimize_design_point(
     result_opt = solve_awt(inputs_opt, x0=cache.get(inputs_opt))
     t_final = time.perf_counter() - t0
 
-    if not _is_feasible(result_opt):
-        raise RuntimeError(
-            "Finaler Optimierungspunkt ist nicht feasible. Bitte Bounds/Randbedingungen prüfen."
-        )
+    final_feasible = _is_feasible(result_opt)
+    if not final_feasible:
+        if verbose:
+            print(
+                "  WARNUNG: Präzisions-Solve (strenge Toleranzen) ist NICHT feasible "
+                f"(Nachricht: '{result_opt.solve_info.message}'). Falle zurück auf das "
+                "Ergebnis mit den gelockerten Optimierungs-Toleranzen (fast=True), "
+                "damit du trotzdem sehen kannst, was gefunden wurde."
+            )
+        inputs_fallback = build_awt_inputs(theta_opt, config, fast=True)
+        result_opt = solve_awt(inputs_fallback, x0=cache.get(inputs_fallback))
+        final_feasible = _is_feasible(result_opt)
 
     t_stage1_total = time.perf_counter() - t_stage1_start
 
@@ -471,13 +519,43 @@ def optimize_design_point(
         print(f"  davon nfev-Limit erreicht    : {stats.hit_nfev_cap}"
               f" (von opt_max_nfev={config.opt_max_nfev})")
         print(f"  mittlere Solve-Zeit/Aufruf   : {stats.avg_solve_time_s*1000:.1f} ms")
+        if stats.calls:
+            infeasible_frac = stats.infeasible / stats.calls
+            print(f"  Infeasible-Anteil            : {infeasible_frac*100:.1f}%")
+            if infeasible_frac > 0.25:
+                print(
+                    "  HINWEIS: hoher Infeasible-Anteil -- dT_search_range/dT_upper "
+                    "evtl. zu eng gewählt für diesen Betriebspunkt."
+                )
         if stats.calls and stats.hit_nfev_cap / stats.calls > 0.1:
             print("  WARNUNG: >10% der Aufrufe erreichen das nfev-Limit -- opt_max_nfev prüfen.")
+
+        # Boundary-Diagnose: klebt theta an der oberen Suchgrenze?
+        near_upper = []
+        for key, val, (lo, hi) in zip(THETA_ORDER, theta_opt, bounds):
+            span = hi - lo
+            if span > 0 and (val - lo) / span > 0.9:
+                near_upper.append(key)
+        if near_upper:
+            print(
+                f"  HINWEIS: theta liegt für {near_upper} nahe der OBEREN Suchgrenze -- "
+                "das deutet auf einen zu eng gewählten Suchraum (dT_search_range/dT_upper) "
+                "für diesen Betriebspunkt hin, nicht zwingend auf ein Warmstart-Problem."
+            )
 
     if config.make_convergence_plot:
         plot_convergence(stats, config.convergence_plot_path)
 
+    if not final_feasible:
+        print(
+            "\nACHTUNG: Auch der Fallback-Solve (gelockerte Toleranzen) ist nicht "
+            "feasible. Das zurückgegebene Ergebnis entspricht KEINER validen Lösung -- "
+            "bitte NICHT für UA-Werte verwenden. theta_opt liegt vermutlich außerhalb "
+            "des tatsächlich lösbaren Bereichs (siehe Boundary-Hinweis oben)."
+        )
+
     return theta_opt, result_opt, stats
+
 
 def print_design_point_summary(theta: np.ndarray, result) -> None:
     print("=" * 90)
@@ -492,7 +570,7 @@ def print_design_point_summary(theta: np.ndarray, result) -> None:
     total_ua = sum(result.UA_conversion[k] for k in ["UA_shex", "UA_des", "UA_cond", "UA_evap", "UA_abs"])
     print(f"  {'Sum(UA)':10s}: {total_ua:10.4f}")
     print()
-    print("Externe Massenströme am Designpunkt [kg/s] (ANNAHME zu Feldnamen, ggf. prüfen)")
+    print("Externe Massenströme am Designpunkt [kg/s]")
     labels = {
         "m11_kg_s": "Absorber (Nutzwärme)",
         "m13_kg_s": "Desorber (Quelle)",
@@ -500,16 +578,9 @@ def print_design_point_summary(theta: np.ndarray, result) -> None:
         "m17_kg_s": "Kondensator (Rückkühlung)",
     }
     for key, label in labels.items():
-        if key in result.diagnostics:
-            print(f"  {key:10s} [{label:24s}]: {result.diagnostics[key]:10.6f}")
-        else:
-            print(f"  {key:10s}: nicht in diagnostics gefunden")
+        print(f"  {key:10s} [{label:24s}]: {result.diagnostics[key]:10.6f}")
     m6 = result.diagnostics["m6_kg_s"]
-    if m6 is not None:
-        print(f"  {'m6':10s} [interner Lösungsstrom  ]: {m6:10.6f}")
-    else:
-        print("  Interner Lösungsmassenstrom nicht gefunden -- bitte Feldnamen im")
-        print("  AHT_Pinch_Point-Quelltext prüfen und mir mitteilen.")
+    print(f"  {'m6':10s} [interner Lösungsstrom  ]: {m6:10.6f}")
     print()
     print("KPIs")
     for k, v in result.kpis.items():
@@ -517,6 +588,265 @@ def print_design_point_summary(theta: np.ndarray, result) -> None:
             print(f"  {k:10s}: {float(v):10.4f}")
         except (TypeError, ValueError):
             print(f"  {k:10s}: {v}")
+    print("=" * 90)
+
+
+def quick_feasibility_probe(
+    config: DesignPointConfig, thetas: Optional[List[np.ndarray]] = None
+) -> None:
+    """Schneller Test (Sekunden bis wenige Minuten) VOR einer vollen Optimierung.
+
+    Prüft ein paar Kandidaten-Theta-Vektoren MIT STRENGEN Solver-Einstellungen
+    (fast=False, wie der finale Solve) und zeigt Feasibility + Rechenzeit.
+    Damit siehst du innerhalb von Minuten, ob dT_floor/dT_search_range/dT_upper/
+    x0_override für einen neuen (evtl. schwierigen) Betriebspunkt überhaupt
+    sinnvoll gewählt sind -- BEVOR du Stunden in eine volle DE-Suche investierst
+    (siehe die 19h-Erfahrung mit einem zu engen/falschen Setup).
+
+    Ohne eigene thetas: testet automatisch drei Punkte (nah an der unteren
+    Schranke, Mitte, nah an der oberen Schranke) je Wärmeübertrager-Kombination.
+    """
+    bounds = _theta_bounds(config)
+    lo = np.array([b[0] for b in bounds])
+    hi = np.array([b[1] for b in bounds])
+
+    if thetas is None:
+        thetas = [
+            lo + 0.1 * (hi - lo),
+            (lo + hi) / 2.0,
+            hi - 0.1 * (hi - lo),
+        ]
+
+    cache = WarmStartCache(fallback=config.x0_override)
+
+    print("=" * 90)
+    print("Schneller Feasibility-Test (empfohlen VOR einer vollen Optimierung)")
+    print("=" * 90)
+    any_feasible = False
+    for theta in thetas:
+        inputs = build_awt_inputs(np.asarray(theta, dtype=float), config, fast=False)
+        x0 = cache.get(inputs)
+        t0 = time.perf_counter()
+        result = solve_awt(inputs, x0=x0)
+        dt = time.perf_counter() - t0
+        feasible = _is_feasible(result)
+        any_feasible = any_feasible or feasible
+        status = "FEASIBLE  " if feasible else "INFEASIBLE"
+        print(
+            f"  theta={np.round(theta, 2)} -> {status} "
+            f"({dt:.2f}s, nfev={result.solve_info.nfev})"
+        )
+        if feasible:
+            cache.update(np.array(list(result.primary_variables.values()), dtype=float))
+        else:
+            print(f"    Solver-Nachricht: {result.solve_info.message}")
+    if not any_feasible:
+        print(
+            "\n  KEIN Testpunkt feasible -- bevor du eine volle Optimierung startest,"
+            " prüfe Randbedingungen (Qabs_spec_kW, Temperaturniveaus) auf grundsätzliche"
+            " Lösbarkeit, z.B. mit noch größeren dT_upper-Werten als Test."
+        )
+    print("=" * 90)
+
+
+def sweep_parameter(
+    base_config: DesignPointConfig,
+    param_name: str,
+    values: List[float],
+    *,
+    verbose: bool = True,
+) -> List[Tuple[float, np.ndarray, "object"]]:
+    """Kontinuitäts-/Homotopie-Sweep für Sensitivitätsanalysen.
+
+    Verändert GENAU EINEN Parameter (z.B. 'T_17_C') über eine Werteliste,
+    hält alle anderen Randbedingungen fix, und führt für jeden Wert eine
+    VOLLE Designpoint-Optimierung durch -- aber mit einem entscheidenden
+    Unterschied zu unabhängigen Einzelläufen: das konvergierte theta UND der
+    konvergierte Primärvektor des vorherigen Werts werden als Startpunkt
+    (x0_override) für den nächsten Wert verwendet.
+
+    Das ist genau das Kontinuitäts-/Homotopie-Prinzip aus der Chat-Erklärung:
+    kleine Schritte von einem bekannten guten Punkt aus, statt jedes Mal "kalt"
+    zu starten. Für eine Sensitivitätsanalyse über ein Temperaturniveau ist das
+    i.d.R. sowohl SCHNELLER (guter Warmstart => schnellere Konvergenz, evtl.
+    kleinere de_maxiter/de_popsize ausreichend) als auch ROBUSTER (der
+    Optimierer startet nie mehr komplett "blind").
+
+    HINWEIS: values sollte in aufsteigender ODER absteigender Reihenfolge sein
+    (monoton), nicht wild gemischt -- sonst sind die Schritte zwischen
+    aufeinanderfolgenden Werten größer als nötig und der Warmstart-Vorteil
+    schrumpft.
+
+    Rückgabe: Liste von (wert, theta_opt, result) für jeden erfolgreich
+    gelösten Wert. Werte, bei denen auch der Fallback-Solve infeasible war,
+    werden übersprungen (mit Warnung), der Sweep läuft aber weiter.
+    """
+    results: List[Tuple[float, np.ndarray, "object"]] = []
+    x0_carry: Optional[np.ndarray] = base_config.x0_override
+    theta_carry: Optional[np.ndarray] = None
+
+    for i, value in enumerate(values):
+        if verbose:
+            print("\n" + "#" * 90)
+            print(f"# Sweep-Schritt {i+1}/{len(values)}: {param_name} = {value}")
+            print("#" * 90)
+
+        cfg = replace(base_config, **{param_name: value}, x0_override=x0_carry)
+
+        # Ab dem zweiten Schritt: Suchraum um das vorherige theta herum
+        # verengen (spart Zeit, da wir schon wissen, wo die Lösung ungefähr
+        # liegt) -- nur wenn der Aufrufer nicht ohnehin dT_upper gesetzt hat.
+        if theta_carry is not None and cfg.dT_upper is None:
+            margin = 5.0  # K, bewusst grosszügig um den vorherigen Punkt herum
+            new_floor = {
+                k: max(0.5, theta_carry[j] - margin) for j, k in enumerate(THETA_ORDER)
+            }
+            new_upper = {k: theta_carry[j] + margin for j, k in enumerate(THETA_ORDER)}
+            cfg = replace(cfg, dT_floor=new_floor, dT_upper=new_upper)
+
+        try:
+            theta_opt, result, _ = optimize_design_point(cfg, verbose=verbose)
+        except Exception as exc:  # pragma: no cover
+            print(f"  Sweep-Schritt {param_name}={value} fehlgeschlagen: {exc}")
+            continue
+
+        if not _is_feasible(result):
+            print(
+                f"  WARNUNG: {param_name}={value} lieferte kein feasibles Ergebnis "
+                "-- wird übersprungen, Sweep läuft weiter."
+            )
+            continue
+
+        results.append((value, theta_opt, result))
+        theta_carry = theta_opt
+        x0_carry = np.array(list(result.primary_variables.values()), dtype=float)
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Stufe 2: Teillast-Verifikation (nur Simulation, keine Optimierung)
+# ---------------------------------------------------------------------------
+
+def build_ua_inputs(
+    scenario: PartLoadScenario,
+    design_ua: Dict[str, float],
+    design_flows: Dict[str, float],
+    config: DesignPointConfig,
+) -> "UAInputs":
+    """Baut die AHT-UA-Modell-Inputs fuer einen Teillastpunkt.
+
+    ANNAHME (siehe Moduldocstring): Desorber/Verdampfer/Kondensator als feste
+    Massenstrom-Kwargs (m_13, m_15, m_17); NUR der Absorber (designbestimmende
+    Apparategruppe, analog zum Verdampfer bei der Kältemaschine) ist über
+    absorber_spec_mode="m11"/"T12" wählbar; cycle_scale_spec_mode="m6".
+    shex_model="UA" mit explizitem UA_shex, damit der in Stufe 1 optimierte
+    SHEX-UA-Wert nicht ignoriert wird (NICHT "NTU"/Effectiveness_shex).
+    """
+    return UAInputs(
+        T_11_C=scenario.T_11_C,
+        T_13_C=scenario.T_13_C,
+        T_15_C=scenario.T_15_C,
+        T_17_C=scenario.T_17_C,
+        UA_shex=design_ua["UA_shex"],
+        UA_des=design_ua["UA_des"],
+        UA_cond=design_ua["UA_cond"],
+        UA_evap=design_ua["UA_evap"],
+        UA_abs=design_ua["UA_abs"],
+        m_13=design_flows["m13_kg_s"],
+        m_15=design_flows["m15_kg_s"],
+        m_17=design_flows["m17_kg_s"],
+        desorber_evaporator_routing_mode=config.desorber_evaporator_routing_mode,
+        cycle_scale_spec_mode="m6",
+        m6_spec=design_flows["m6_kg_s"],
+        absorber_spec_mode="m11",
+        m11_spec=design_flows["m11_kg_s"],
+        cp_w_kJkgK=config.cp_w_kJkgK,
+        desorber_vapor_superheat_K=config.desorber_vapor_superheat_K,
+        shex_model="UA",
+    )
+
+
+def verify_part_load(
+    scenarios: List[PartLoadScenario],
+    design_result,
+    config: DesignPointConfig,
+) -> None:
+    if not UA_MODEL_AVAILABLE:
+        print(
+            "AHT-UA-Modell konnte nicht importiert werden "
+            f"({_ua_import_error!r}). Stufe 2 wird übersprungen.\n"
+            "  -> Falls das Modul anders heißt/liegt: Pfad/Klassennamen im Skript anpassen,\n"
+            "     oder mir das Main-Skript/den Quelltext schicken."
+        )
+        return
+
+    design_ua = {
+        k: design_result.UA_conversion[k]
+        for k in ["UA_shex", "UA_des", "UA_cond", "UA_evap", "UA_abs"]
+    }
+    design_flows = {
+        "m11_kg_s": design_result.diagnostics["m11_kg_s"],
+        "m13_kg_s": design_result.diagnostics["m13_kg_s"],
+        "m15_kg_s": design_result.diagnostics["m15_kg_s"],
+        "m17_kg_s": design_result.diagnostics["m17_kg_s"],
+        "m6_kg_s": design_result.diagnostics["m6_kg_s"],
+    }
+
+    print("=" * 90)
+    print("Stufe 2: Teillast-Verifikation")
+    print("=" * 90)
+
+    cache = WarmStartCache()
+
+    for scenario in scenarios:
+        t0 = time.perf_counter()
+        try:
+            inputs = build_ua_inputs(scenario, design_ua, design_flows, config)
+        except TypeError as exc:
+            print(
+                f"[{scenario.name}] Konnte UAInputs nicht erzeugen -- "
+                f"Parameter-Mismatch mit AHT_UA_LMTD: {exc}\n"
+                "  -> Bitte AHT_UA_LMTD.py-Quelltext/Main-Skript schicken, dann"
+                " passe ich build_ua_inputs() an."
+            )
+            continue
+
+        x0 = cache.get(inputs)
+
+        try:
+            result = solve_ua(inputs, x0=x0)
+        except Exception as exc:
+            print(f"[{scenario.name}] Fehler beim Lösen: {exc}")
+            continue
+
+        try:
+            feasible = _is_feasible(result)
+        except AttributeError as exc:
+            print(
+                f"[{scenario.name}] Ergebnisstruktur des AHT-UA-Modells weicht ab: {exc}\n"
+                "  -> Bitte AHT_UA_LMTD.py-Quelltext schicken zum Abgleich."
+            )
+            continue
+
+        dt = time.perf_counter() - t0
+        status = "FEASIBLE" if feasible else "INFEASIBLE"
+        print(f"\n[{scenario.name}] Status: {status}  ({dt:.2f} s)")
+
+        if feasible:
+            cache.update(np.array(list(result.primary_variables.values()), dtype=float))
+            print(f"  Q_abs = {result.heat_flows_kW.get('Q_abs', float('nan')):.3f} kW")
+            for k, v in result.kpis.items():
+                try:
+                    print(f"  {k:6s}= {float(v):.4f}")
+                except (TypeError, ValueError):
+                    pass
+        else:
+            print(f"  Solver-Nachricht: {result.solve_info.message}")
+            if result.checks:
+                verletzte = [k for k, v in result.checks.items() if not v]
+                print(f"  Verletzte Checks: {verletzte}")
+
     print("=" * 90)
 
 
@@ -528,9 +858,25 @@ if __name__ == "__main__":
     config = DesignPointConfig()
 
     t_total_start = time.perf_counter()
+
+    if config.run_feasibility_probe:
+        quick_feasibility_probe(config)
+        print(
+            "\nFeasibility-Test abgeschlossen. Falls oben (fast) alles INFEASIBLE war,"
+            " Bounds/Randbedingungen/x0_override anpassen, bevor die volle Optimierung"
+            " gestartet wird (siehe Chat-Erklärung)."
+        )
+
     theta_opt, design_result, stats = optimize_design_point(config)
     print_design_point_summary(theta_opt, design_result)
-    t_total = time.perf_counter() - t_total_start
 
-    print()
-    print(f"Gesamtdauer: {t_total/60:.2f} min")
+    if config.run_stage2:
+        t0 = time.perf_counter()
+        verify_part_load(DEFAULT_SCENARIOS, design_result, config)
+        t_stage2 = time.perf_counter() - t0
+        print(f"\nStufe 2 Dauer : {t_stage2:.1f} s")
+    else:
+        print("\nStufe 2 übersprungen (config.run_stage2 = False).")
+
+    t_total = time.perf_counter() - t_total_start
+    print(f"Gesamtdauer   : {t_total/60:.2f} min")

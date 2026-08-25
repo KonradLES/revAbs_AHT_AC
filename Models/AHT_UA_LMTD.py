@@ -860,6 +860,11 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
         R2_shex = Q_shex - inputs.Effectiveness_shex * Q_shex_max
         lmtd_shex = float("nan")                   # nicht definiert in diesem Modus
 
+    # Pintchtemperaturdifferenzen für SHEX:
+    dT_shex_hot_end  = T3 - T4   # heiß ein  / kalt aus
+    dT_shex_cold_end = T2 - T5   # heiß aus  / kalt ein
+    pinch_shex = min(dT_shex_hot_end, dT_shex_cold_end)
+
     # ------------------------------------------------------------------
     # 6) Drossel 2 -> 1 (isenthalp, T1 aus Flash-Drossel)
     # ------------------------------------------------------------------
@@ -921,6 +926,18 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
     lmtd_cond = _counterflow_lmtd_mode(
         strict=strict, hot_in=T8, hot_out=T8, cold_in=inputs.T_17, cold_out=T18
     )
+    
+    # Pintchtemperaturdifferenzen für Kondensator:
+    h_g_low = water_h_kjkg_PQ(p_low, Q=1.0)
+    Q_desuperheat = m7 * (h7 - h_g_low)
+    Q_desuperheat = max(0.0, min(Q_desuperheat, Q_cond))
+    T18_sat = T18 - Q_desuperheat / (
+        inputs.m_17 * inputs.cp_w_kJkgK
+    )
+    dT_cond_in = T7 - T18
+    dT_cond_sat = T8 - T18_sat
+    dT_cond_out = T8 - inputs.T_17
+    pinch_cond = min(dT_cond_in, dT_cond_sat, dT_cond_out)
 
     # ------------------------------------------------------------------
     # 9) Kältemittelpumpe 8 -> 9
@@ -975,6 +992,23 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
         lmtd_evap = _counterflow_lmtd_mode(
             strict=strict, hot_in=T15_in, hot_out=T16, cold_in=T10, cold_out=T10
         )
+    
+    # Pinchtemperaturdifferenzen für Desorber:
+    dT_des_hot_end  = T13_in - T6   # heiß ein / kalt aus
+    dT_des_cold_end = T14    - T1   # heiß aus / kalt ein
+    pinch_des  = min(dT_des_hot_end,  dT_des_cold_end)
+
+    # Pinchtemperaturdifferenzen für Verdampfer:
+    h_f_high = water_h_kjkg_PQ(p_high, Q=0.0)
+    Q_subcool = m9 * (h_f_high - h9)
+    Q_subcool = max(0.0, min(Q_subcool, Q_evap))
+    T16_sat = T16 + Q_subcool / (
+        inputs.m_15 * inputs.cp_w_kJkgK
+    )
+    dT_evap_in = T15_in - T10
+    dT_evap_sat = T16_sat - T10
+    dT_evap_out = T16 - T9
+    pinch_evap = min(dT_evap_in, dT_evap_sat, dT_evap_out)
 
     # ------------------------------------------------------------------
     # 11) Adiabate Vorabsorption 4 + 19 -> 20
@@ -991,7 +1025,15 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
     lmtd_abs = _counterflow_lmtd_mode(
         strict=strict, hot_in=T20, hot_out=T3, cold_in=inputs.T_11, cold_out=T12
     )
-    
+    # Pinchtemperaturdifferenzen für Absorber:
+    dT_abs_hot_end  = T20 - T12          # heiß ein / kalt aus
+    dT_abs_cold_end = T3  - inputs.T_11  # heiß aus / kalt ein
+    pinch_abs  = min(dT_abs_hot_end,  dT_abs_cold_end)
+
+    # ------------------------------------------------------------------
+    # Elektrische Leistungsaufnahme der Pumpen
+    # ------------------------------------------------------------------
+    W_AHT_total = 0.005 * (Q_des + Q_evap)  # kW, Pauschalwert für Hilfsenergie der Pumpen
     # ------------------------------------------------------------------
     #Exergy Bilanzierung / Refenrenzwerte
     # ------------------------------------------------------------------
@@ -1228,6 +1270,7 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
         pump_work_kW={
             "W_sol_pump": W_sol_pump,
             "W_ref_pump": W_ref_pump,
+            "W_AHT_total": W_AHT_total,
         },
         lmtd_K={
             "LMTD_shex": lmtd_shex,
@@ -1235,6 +1278,11 @@ def _evaluate_model_common(z: np.ndarray, inputs: AWTInputs, *, strict: bool) ->
             "LMTD_cond": lmtd_cond,
             "LMTD_evap": lmtd_evap,
             "LMTD_abs": lmtd_abs,
+            "Pinch_shex": pinch_shex,
+            "Pinch_des": pinch_des,
+            "Pinch_cond": pinch_cond,
+            "Pinch_evap": pinch_evap,
+            "Pinch_abs": pinch_abs,
         },
         compositions={
             "x3_LiBr_mol": x3,
