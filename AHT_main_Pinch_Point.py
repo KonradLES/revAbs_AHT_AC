@@ -60,8 +60,6 @@ DESORBER_EVAPORATOR_ROUTING_MODE = "parallel"
 #DESORBER_EVAPORATOR_ROUTING_MODE = "series_desorber_to_evaporator"
 # DESORBER_EVAPORATOR_ROUTING_MODE = "series_evaporator_to_desorber"
 
-#Test
-
 def build_example_inputs() -> AWTInputs:
     common_kwargs = dict(
         T_11_C=79.0,   # 135, 60, 80
