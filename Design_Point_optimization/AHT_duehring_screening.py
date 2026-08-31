@@ -296,7 +296,7 @@ def plot_gtl_vs_waste_heat(
     dT_min_evap: float = 5.0,
     dT_min_cond: float = 5.0,
     dT_min_abs: float = 5.0,
-    save_path: Optional[str] = "Design_Point_optimization/duehring_screening_GTL.png",
+    save_path: Optional[str] = "Design_Point_optimization/duehring_screening_GTL_5K.png",
     show: bool = True,
 ):
     """Eine Kurve GTL_max vs. Abwärmetemperatur je T17-Wert. Infeasible/
@@ -351,7 +351,7 @@ if __name__ == "__main__":
     DT_MIN_COND = 5.0
     DT_MIN_ABS = 5.0
 
-    T_WASTE_RANGE_C = list(np.arange(50.0, 95.0, 5.0))
+    T_WASTE_RANGE_C = list(np.arange(40.0, 95.0, 5.0))
     T17_CURVES_C = [15.0, 20.0, 25.0]
 
     print("Dühring-Screening für T17 = 20 °C:")

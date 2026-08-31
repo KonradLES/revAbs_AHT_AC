@@ -10,45 +10,48 @@ verschieben, damit die Anlage noch läuft" ist das Overkill.
 Dieses Skript hält dT_min FEST auf eure real angenommenen/gebauten
 Pinch-Werte (kein Optimierungsziel!) und sucht für ein Raster von
 Abwärmetemperaturen (T13 = T15, parallele Verschaltung) das GESAMTE
-feasible T12-Fenster [T12_min, T12_max] -- nicht nur das Maximum --, für
-das solve_awt() eine gültige (feasible) Lösung liefert. Jeder Punkt kostet
-nur eine Handvoll solve_awt()-Aufrufe (Millisekunden bis Sekunden) statt
-einer vollen DE-Suche.
+feasible T12-Fenster [T12_min, T12_max] -- nicht nur das Maximum. Jeder
+Punkt kostet nur eine Handvoll solve_awt()-Aufrufe statt einer vollen
+DE-Suche.
 
-Warum ein FENSTER und nicht nur ein Maximum
---------------------------------------------
-Naive Annahme (erste Version dieses Skripts): T12 nahe T_11_C ist immer der
-"leichteste" Fall und damit ein sicherer Startpunkt für die Suche nach dem
-Maximum. Das stimmt NICHT bei hohen Abwärmetemperaturen: mit steigendem
-T_waste steigt der Hochdruck (Verdampfer/Absorber-Seite) so weit, dass
-selbst die verdünnteste Lösung im Absorber nicht mehr bei niedrigen
-Temperaturen (nahe T_11_C) kondensieren/absorbieren kann -- die gesamte
-feasible Zone wandert nach oben. Ein fixer Startpunkt bei T_11_C+1°C ist
-dort selbst schon unlösbar, und eine reine "Maximum"-Suche würde fälschlich
-"gar nichts gefunden" melden, obwohl ein Fenster weiter oben existiert.
+Kernkonzept: Mindest-Hub statt fixer Zieltemperatur
+----------------------------------------------------
+Statt einer global fixen Nutzwärmesenke T_11_C wird T11 PRO PUNKT als
+`T_waste_C + min_lift_offset_C` gesetzt -- eine Design-Vorgabe ("ich will
+mindestens X Kelvin Hub über die jeweilige Abwärme"), die mit T_waste
+mitskaliert, statt ein fixes Absolutziel zu erzwingen (das bei niedrigem
+T_waste einen unrealistisch grossen Hub verlangen würde). Das gefundene
+Fenster [T12_min, T12_max] ist direkt als "welche Nutztemperatur kann ich
+mir bei dieser Abwärmetemperatur sinnvoll aussuchen" lesbar.
 
-Vorgehen
---------
-- Externe Austrittstemperaturen von Desorber/Verdampfer/Kondensator werden
-  über feste ANNÄHERUNGS-Deltas relativ zur (geschwenkten) Abwärme- bzw.
-  Rückkühltemperatur vorgegeben (T14 = T_waste - dT_approach_des usw.) --
-  das ist eine Design-Annahme (typische externe Spreizung), keine
-  Modellgrenze. Passt sie an eure tatsächliche Netz-/Kreislaufauslegung an.
-- Für jede Abwärmetemperatur wird zunächst per Anker-Suche (ausgehend vom
-  vorherigen Ergebnis, alternierend nach oben/unten) EIN feasibler T12-Wert
-  lokalisiert. Von dort wird sowohl nach oben (Maximum) als auch nach unten
-  (Minimum) per Expansion + Bisektion das Fenster bestimmt.
-- "Feasible" bedeutet hier (identisch zur strengen Prüfung in
-  AHT_stable_design_point.py): solve_info.success, final_point_evaluable,
-  scaled_residual_norm <= RESIDUAL_TOL, und alle result.checks == True.
+Wichtig zu wissen für die Interpretation
+------------------------------------------
+- GTL (Gross Temperature Lift) = T12 - T_waste ist die physikalisch
+  sinnvolle Kenngrösse eines Wärmetransformators (T12 muss > T_waste sein,
+  sonst "transformiert" die Anlage nichts). T11 selbst hat auf die interne
+  Machbarkeit praktisch KEINEN Einfluss -- es bestimmt nur den externen
+  Absorber-Massenstrom m11 = Q_abs/(cp·(T12-T11)), siehe
+  _resolve_absorber_external_stream in Models.AHT_Pinch_Point.
+- Der Solver-Warmstart (x0) hat nur ein schmales Einzugsgebiet (oft nur
+  ~2-4 K in T12, teils auch in T_waste selbst). Ein zu grosser Sprung lässt
+  den Solver in einem Scheinkonvergenzpunkt landen (scipy meldet "success",
+  obwohl die Pinch-Residuen deutlich von 0 abweichen). Deshalb arbeiten
+  alle Suchfunktionen hier mit kleinschrittigem Kontinuitäts-Walk bzw.
+  adaptiver Homotopie (Schrittweite halbieren bei Fehlschlag, vergrössern
+  bei Erfolg) -- analog zu AHT_stable_design_point.py, nur über T12/T_waste
+  statt über dT_min.
+- Manche Fenster sind sehr schmal (<2 K) kurz bevor ein Betriebspunkt an
+  seine tatsächliche Machbarkeitsgrenze stösst (die Fensterbreite geht dort
+  reproduzierbar gegen 0 -- ein echter Umkehrpunkt, kein Suchraster-
+  Artefakt). Ein zu grobes Suchraster kann solche Fenster überspringen und
+  fälschlich "nicht lösbar" meldet.
 
-Ergebnis: für jede Abwärmetemperatur das GESAMTE erreichbare GTL-Fenster bei
-EURER gewählten (nicht optimierten) Pinch-Güte -- direkt vergleichbar mit
-der optimistischen oberen Schranke aus AHT_duehring_screening.py (die nur
-die obere Kante liefert, siehe deren Docstring).
-
-Erst für die 3-5 daraus ausgewählten, tatsächlich interessanten
-Betriebspunkte lohnt sich der volle UA-Optimierer.
+Empfehlung
+----------
+Erst mit diesem Skript den Grobverlauf des erreichbaren Fensters über
+T_waste kartieren (moderate Pinch-/Approach-Werte, siehe Konfiguration
+unten). Erst für die 3-5 daraus ausgewählten, tatsächlich interessanten
+Betriebspunkte lohnt sich der volle UA-Optimierer (AHT_design_point_optimizer.py).
 
 Aufruf als Skript
 -----------------
@@ -62,7 +65,7 @@ import sys
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -77,61 +80,115 @@ from Models.AHT_Pinch_Point import (
 
 RESIDUAL_TOL = 1.0e-6
 
-
 # ---------------------------------------------------------------------------
 # Konfiguration -- HIER ANPASSEN
 # ---------------------------------------------------------------------------
 
 @dataclass
 class FeasibilitySweepConfig:
-    # Feste Randbedingungen
-    T_11_C: float = 70.0     # Nutzwärmesenke, kalter Eintritt
+    # --- Betriebspunkt-Randbedingungen -------------------------------------
+    T_11_C: float = 70.0     # Nutzwärmesenke, kalter Eintritt (nur von
+                              # sweep_feasibility() verwendet, siehe dort)
     T_17_C: float = 15.0     # Rückkühlung, kalter Eintritt
     Qabs_spec_kW: float = 500.0
 
-    # Eure real angenommenen/gebauten Pinch-Werte -- NICHT optimiert.
-    dT_min_shex: float = 3.0    # 5.0
-    dT_min_des: float = 3.0     # 5.0   
-    dT_min_cond: float = 3.0    # 5.0
-    dT_min_evap: float = 3.0    # 5.0
-    dT_min_abs: float = 3.0     # 5.0
+    # --- Mindest-Hub-Vorgabe (T11 = T_waste + min_lift_offset_C) -----------
+    # Das ist der Wert, den man i.d.R. zuerst anpassen will: "wie viel
+    # Kelvin Hub über die Abwärmetemperatur will ich mindestens erreichen".
+    # Nur ein technischer Ankerpunkt für die Suche, keine reale Anforderung
+    # -- die eigentliche Wahl von T11/T12 trefft ihr anhand des ganzen
+    # gefundenen Fensters. Genutzt von sweep_relative_lift_window() und
+    # sweep_relative_lift_window_homotopy() (per min_lift_offset_C-Argument
+    # dort überschreibbar).
+    min_lift_offset_C: float = 2.0
 
-    # Externe Spreizung (Design-Annahme, siehe Moduldocstring)
-    dT_approach_des_C: float = 4.0    # 7.0 T14 = T_waste - dT_approach_des_C
-    dT_approach_evap_C: float = 4.0   # 7.0 T16 = T_waste - dT_approach_evap_C
-    dT_approach_cond_C: float = 3.0   # 6.0 T18 = T_17_C + dT_approach_cond_C
+    # --- Pinch-Werte (Design-Annahme, kein Optimierungsziel) ---------------
+    # Minimale Temperaturdifferenz am "Pinch Point" jedes Wärmeübertragers
+    # (siehe Modul-Docstring / Chat: kleiner = grösserer & teurerer Apparat,
+    # aber näher am thermodynamischen Optimum). 5 K ist ein moderater,
+    # robust auffindbarer Wert für die Exploration -- für die reale
+    # UA-Feinauslegung eines konkret ausgewählten Punktes ggf. schärfer
+    # (kleiner) ansetzen, siehe AHT_design_point_optimizer.py.
+    dT_min_shex: float = 5.0    # 3.0
+    dT_min_des: float = 5.0     # 3.0
+    dT_min_cond: float = 5.0    # 3.0
+    dT_min_evap: float = 5.0    # 3.0
+    dT_min_abs: float = 5.0     # 3.0
+
+    # --- Externe Approach-Werte (Design-Annahme) ----------------------------
+    # Externe Austrittstemperaturen von Desorber/Verdampfer/Kondensator,
+    # relativ zur Abwärme- bzw. Rückkühltemperatur vorgegeben:
+    #   T14 = T_waste - dT_approach_des_C   T16 = T_waste - dT_approach_evap_C
+    #   T18 = T_17_C  + dT_approach_cond_C
+    # Kleinere Werte = mehr externer Massenstrom = mehr "thermisches Budget"
+    # für die Pinch-Werte oben, verschiebt aber auch die Machbarkeitsgrenze
+    # bei niedrigem T_waste nach unten (siehe Modul-Docstring).
+    dT_approach_des_C: float = 8.0      # 4.0
+    dT_approach_evap_C: float = 8.0     # 4.0
+    dT_approach_cond_C: float = 6.0     # 3.0
 
     desorber_evaporator_routing_mode: str = "parallel"
     cp_w_kJkgK: float = 4.18
     desorber_vapor_superheat_K: float = 0.0
 
-    # Bisektionssteuerung für T12_spec. step_C klein gehalten (siehe
-    # anchor_search_step_C oben) -- dasselbe Basin-Argument gilt auch für
-    # die Fenster-Expansion in _expand_and_bisect.
+    # -------------------------------------------------------------------
+    # Such-/Solver-Parameter -- i.d.R. NICHT anfassen
+    # -------------------------------------------------------------------
+    # Alle Schrittweiten sind bewusst klein gehalten: das Einzugsgebiet
+    # eines Warmstarts ist empirisch oft nur ~2-4 K breit (siehe
+    # Modul-Docstring); ein gröberes Raster überspringt echte, aber schmale
+    # Lösungsfenster.
     T12_search_margin_C: float = 1.0   # Startabstand oberhalb T_11_C (nur 1. Punkt)
-    T12_step_C: float = 2.0            # Expansionsschritt
+    T12_step_C: float = 2.0            # Expansionsschritt für die Fenstersuche
     T12_bisect_tol_C: float = 0.2      # Abbruchbreite der Bisektion
-    max_expand_steps: int = 40   # bei step_C=2.0 -> bis zu 80 K Reichweite
+    max_expand_steps: int = 40         # bei T12_step_C=2.0 -> bis zu 80 K Reichweite
     max_bisect_steps: int = 25
 
-    # Anker-Suche (siehe _locate_anchor): wie weit als Kontinuitäts-Walk um
-    # den Schätzwert herum nach einem ERSTEN feasiblen T12 gesucht wird.
-    # step_C bewusst klein: empirisch ist das Einzugsgebiet eines Warmstarts
-    # oft nur ~2-4 K breit (siehe Chat-Diagnose) -- ein gröberes Raster
-    # überspringt echte Lösungen, auch mit Kontinuitäts-Chaining.
     anchor_search_span_C: float = 60.0
     anchor_search_step_C: float = 1.0
 
     # Gelockerte Solver-Toleranzen für die Probe-Solves (Anker-Suche,
     # Expansion, Bisektion). Mit den strengen AWTInputs-Defaults
-    # (solver_tol=1e-9, max_nfev=5000) kann JEDER einzelne fehlschlagende
-    # Versuch bis zu 5000 Iterationen brauchen, bevor er als infeasible
-    # erkannt wird -- bei ~100 Versuchen/Punkt summiert sich das schnell zu
-    # Stunden. Analog zum fast=True/False-Muster in
-    # AHT_design_point_optimizer.py: hier schnell/locker suchen, danach
-    # EINMAL je Fenstergrenze streng nachrechnen (siehe find_feasible_window).
+    # (solver_tol=1e-9, max_nfev=5000) kann jeder fehlschlagende Versuch
+    # bis zu 5000 Iterationen brauchen -- bei ~100 Versuchen/Punkt summiert
+    # sich das zu Stunden. Analog zum fast=True/False-Muster in
+    # AHT_design_point_optimizer.py: schnell/locker suchen, an den beiden
+    # gefundenen Fenstergrenzen danach je einmal streng nachrechnen (siehe
+    # _refine_boundary).
     probe_solver_tol: float = 1.0e-6
     probe_max_nfev: int = 300
+# ---------------------------------------------------------------------------
+# Such-Raster für den Sweep -- HIER ANPASSEN
+# ---------------------------------------------------------------------------
+# Abwärmetemperaturen, die untersucht werden sollen. Die Homotopie startet
+# beim höchsten Wert (T_WASTE_START_C) kalt und wandert von dort SCHRITT
+# FÜR SCHRITT abwärts bis T_WASTE_END_C -- deshalb sollte T_WASTE_START_C
+# ein unproblematischer, hoher Wert bleiben, auch wenn ihr hauptsächlich an
+# tieferen Temperaturen interessiert seid. Wie tief T_WASTE_END_C sinnvoll
+# gehen kann, hängt von min_lift_offset_C und den Pinch-/Approach-Werten in
+# FeasibilitySweepConfig ab -- irgendwann schliesst sich das Fenster an
+# einem echten Umkehrpunkt (siehe Modul-Docstring); die Homotopie bricht
+# dort automatisch ab und meldet den zuletzt erreichten Wert.
+T_WASTE_START_C = 85.0   # höchste untersuchte Abwärmetemperatur [°C]
+T_WASTE_END_C = 40.0     # tiefste GEWÜNSCHTE Abwärmetemperatur [°C] (evtl. nicht erreichbar, s.o.)
+T_WASTE_STEP_C = 5.0     # Rasterabstand [K]
+
+plot_name = "feasibility_sweep_15_ex_8_8_6"
+
+# Zusatzauswertungen aus DEMSELBEN Sweep, ohne ihn erneut zu rechnen (siehe
+# __main__ unten) -- jeweils per ENABLE_*-Schalter einzeln abschaltbar. Die
+# zugrundeliegenden Skripte (AHT_duehring_multi_process_plot.py /
+# AHT_qt_multi_process_plot.py) bleiben auch eigenständig lauffähig.
+ENABLE_DUEHRING_MULTI_PLOT = True
+duehring_plot_name = "duehring_multi_process_15_ex_8_8_6"
+
+ENABLE_QT_MULTI_PDF = True
+qt_pdf_name = "qt_multi_process_15_ex_8_8_6"
+
+# Wie viele der untersuchten Abwärmetemperaturen in den beiden
+# Zusatzauswertungen eingezeichnet werden (2 = jede zweite) -- bei zu vielen
+# überlagerten Prozessen wird das Dühring-Diagramm unleserlich.
+MULTI_PLOT_EVERY_NTH = 2
 
 
 @dataclass(frozen=True)
@@ -147,7 +204,7 @@ class FeasibilityPoint:
 
 
 # ---------------------------------------------------------------------------
-# Hilfsfunktionen
+# Solve-Hilfsfunktionen
 # ---------------------------------------------------------------------------
 
 def _build_inputs(
@@ -155,8 +212,8 @@ def _build_inputs(
     fast: bool = True, T11_C: Optional[float] = None,
 ) -> AWTInputs:
     """T11_C überschreibt config.T_11_C für einen einzelnen Aufruf -- genutzt
-    von probe_minimum_output_temperature(), wo T11 selbst gesucht wird statt
-    fix zu sein (siehe dortigen Docstring)."""
+    von den relative-lift-Funktionen, wo T11 pro Punkt aus T_waste_C
+    abgeleitet wird statt fix zu sein."""
     kwargs = dict(
         T_11_C=T11_C if T11_C is not None else config.T_11_C,
         T_13_C=T_waste_C,
@@ -252,14 +309,12 @@ def _locate_anchor(
     Schritten von guess_C aus (beide Richtungen) -- NICHT als unabhängige
     Sprünge mit demselben Startvektor.
 
-    WICHTIG (empirisch bestätigt, siehe Chat): das Einzugsgebiet eines
-    gegebenen Warmstarts ist oft nur ~2-4 K breit -- ein Kandidat 2 K daneben
-    kann von genau demselben x0 aus glatt konvergieren, während einer 5-20 K
-    weiter weg tagelang divergiert, OBWOHL dort ebenfalls eine gültige
-    Lösung existiert. Ein Sprung-Scan mit fixem x0_seed trifft solche
-    schmalen Becken nur zufällig. Der Walk reicht deshalb den Lösungsvektor
-    JEDES Versuchs weiter (auch wenn er (noch) nicht "valid" ist, siehe
-    _solve_raw) -- exakt das Kontinuitätsprinzip aus
+    Das Einzugsgebiet eines gegebenen Warmstarts ist oft nur ~2-4 K breit:
+    ein Kandidat 2 K daneben kann von genau demselben x0 aus glatt
+    konvergieren, während einer 5-20 K weiter weg divergiert, OBWOHL dort
+    ebenfalls eine gültige Lösung existiert. Der Walk reicht deshalb den
+    Lösungsvektor JEDES Versuchs weiter (auch wenn er (noch) nicht "valid"
+    ist, siehe _solve_raw) -- exakt das Kontinuitätsprinzip aus
     AHT_stable_design_point.py, nur über T12 statt über dT_min.
     """
     lo_bound = config.T_11_C + 1.0e-3
@@ -366,8 +421,8 @@ def find_feasible_window(
 ) -> FeasibilityPoint:
     """Lokalisiert einen Anker und bestimmt davon ausgehend das gesamte
     feasible T12-Fenster [T12_min, T12_max]. Die eigentliche Suche läuft mit
-    gelockerten Toleranzen (config.probe_*, siehe Moduldocstring); an den
-    beiden gefundenen Grenzen wird danach je einmal streng nachgerechnet."""
+    gelockerten Toleranzen (config.probe_*); an den beiden gefundenen
+    Grenzen wird danach je einmal streng nachgerechnet."""
 
     guess = (
         T12_anchor_guess_C if T12_anchor_guess_C is not None
@@ -400,64 +455,15 @@ def find_feasible_window(
     )
 
 
-# ---------------------------------------------------------------------------
-# Kleinster ECHTER Hub (GTL > 0), unabhängig von einer fixen T_11_C
-# ---------------------------------------------------------------------------
-#
-# find_feasible_window() hält T_11_C aus der Config fest (eure reale
-# Senkentemperatur). Das beantwortet "erreicht diese Abwärme MEINE
-# geforderte Senkentemperatur" -- bei niedrigem T_waste kann das schlicht
-# mit "nein" beantwortet sein, weil T_11_C zu hoch angesetzt ist, nicht weil
-# die Anlage grundsätzlich keinen Hub liefern könnte.
-#
-# WICHTIGE KORREKTUR (eine erste, isolierte Version dieser Analyse war
-# fehlerhaft): T_11_C beeinflusst NUR den externen Absorber-Massenstrom
-# (m11 = Q_abs / (cp * (T12 - T11)), siehe _resolve_absorber_external_stream
-# in Models.AHT_Pinch_Point) -- keine einzige interne Pinch-/Konzentrations-
-# Nebenbedingung hängt von T11 ab. Ein Versuch, T11 = T12 - lift_margin_C zu
-# setzen, hat deshalb "Lösungen" mit T12 < T_waste zugelassen: mathematisch
-# zulässig, aber physikalisch sinnlos -- ein Wärmetransformator, der nicht
-# transformiert (kein Hub gegenüber der Antriebstemperatur). Die tatsächlich
-# harte, physikalisch sinnvolle Randbedingung ist GTL > 0, also
-# T12 > T_waste_C (T_waste = T13 = T15) -- NICHT T12 > T11.
-#
-# Ein zweiter, isolierter Anlauf (eigene Expansion+Bisektion ab T_waste,
-# ohne Warmstart-Kette) fand für 45/50/55°C fälschlich "GAR KEIN Hub
-# möglich" -- das war ein SOLVER-Konvergenzproblem (kalter Start weit vom
-# tatsächlichen Betriebspunkt), keine echte physikalische Grenze: die
-# Dühring-Obergrenze (AHT_duehring_screening.py) zeigt für diesen Bereich
-# durchaus zweistellige GTL-Werte als thermodynamisch möglich. Genau dieses
-# Muster - generische Startwerte scheitern bei "schwierigen" (hier: sehr
-# niedriges GTL) Betriebspunkten - ist der Grund, warum
-# AHT_stable_design_point.py überhaupt Kontinuität/Warmstart-Ketten nutzt.
-#
-# sweep_true_lift_window() macht es deshalb NICHT nochmal isoliert, sondern
-# wiederverwendet die bereits Warmstart-verkettete find_feasible_window() /
-# sweep_feasibility()-Maschinerie 1:1 -- nur mit T_11_C durch einen
-# niedrigen, für die Machbarkeit irrelevanten Platzhalter ersetzt -- und
-# filtert das gefundene Fenster anschliessend auf den physikalisch
-# sinnvollen Teil (T12 > T_waste_C).
-
-@dataclass(frozen=True)
-class TrueLiftPoint:
-    T_waste_C: float
-    lift_feasible: bool          # gibt es überhaupt ein T12 > T_waste_C im Fenster?
-    GTL_min_K: float = float("nan")
-    GTL_max_K: float = float("nan")
-    raw_point: Optional[FeasibilityPoint] = None
-    message: str = ""
-
-
 def _duehring_initial_guess_C(
     T_waste_C: float, config: FeasibilitySweepConfig, *, fraction: float = 0.6
 ) -> Optional[float]:
     """Liefert T_waste_C + fraction * GTL_max(Dühring-Screening) als groben,
     aber grössenordnungsmässig richtigen T12-Schätzwert für den allerersten
-    Punkt einer Suche -- siehe sweep_feasibility()-Docstring, warum ein
-    generischer Schätzwert (z.B. T_11_C+margin) bei niedrigem T_waste um
-    Grössenordnungen daneben liegen kann. fraction<1, weil das reale Fenster
-    mit Pinch/Approach unter der optimistischen Dühring-Obergrenze liegt,
-    aber in derselben Grössenordnung."""
+    Punkt einer Suche. Ein generischer Schätzwert (z.B. T_11_C+margin) kann
+    bei niedrigem T_waste um Grössenordnungen daneben liegen; fraction<1,
+    weil das reale (Pinch-)Fenster unter der optimistischen
+    Dühring-Obergrenze liegt, aber in derselben Grössenordnung."""
     try:
         from AHT_duehring_screening import estimate_max_gtl
     except ImportError:
@@ -476,77 +482,8 @@ def _duehring_initial_guess_C(
     return None
 
 
-def sweep_true_lift_window(
-    T_waste_values_C: Sequence[float],
-    config: FeasibilitySweepConfig,
-    *,
-    T11_placeholder_C: Optional[float] = None,
-) -> List[TrueLiftPoint]:
-    """Wie sweep_feasibility(), aber mit T_11_C durch einen niedrigen
-    Platzhalter ersetzt (siehe Moduldocstring) und auf GTL > 0 gefiltert.
-
-    T_waste_values_C trotzdem mit einem eher hohen, "leichten" Wert beginnen
-    und absteigen -- die Warmstart-Kette in sweep_feasibility() trägt danach
-    Schritt für Schritt weiter; der Startschätzwert für den allerersten
-    Punkt kommt aus _duehring_initial_guess_C().
-    """
-    from dataclasses import replace
-
-    T11_fixed = T11_placeholder_C if T11_placeholder_C is not None else config.T_17_C + 3.0
-    config_probe = replace(config, T_11_C=T11_fixed)
-
-    initial_guess_C = _duehring_initial_guess_C(T_waste_values_C[0], config) if T_waste_values_C else None
-
-    raw_points = sweep_feasibility(
-        T_waste_values_C, config_probe, initial_anchor_guess_C=initial_guess_C
-    )
-
-    results: List[TrueLiftPoint] = []
-    for p in raw_points:
-        if not p.feasible:
-            results.append(TrueLiftPoint(
-                T_waste_C=p.T_waste_C, lift_feasible=False, message=p.message,
-            ))
-            continue
-
-        meaningful_min = max(p.T12_min_C, p.T_waste_C)
-        meaningful_max = p.T12_max_C
-        if meaningful_max <= p.T_waste_C:
-            results.append(TrueLiftPoint(
-                T_waste_C=p.T_waste_C, lift_feasible=False, raw_point=p,
-                message=(
-                    f"Selbst das rechnerische Maximum T12={p.T12_max_C:.2f} °C liegt "
-                    f"nicht über T_waste={p.T_waste_C:.2f} °C -- diese Abwärmetemperatur "
-                    "lässt mit den aktuellen Pinch-/Approach-Annahmen KEINEN echten Hub zu."
-                ),
-            ))
-        else:
-            results.append(TrueLiftPoint(
-                T_waste_C=p.T_waste_C, lift_feasible=True, raw_point=p,
-                GTL_min_K=meaningful_min - p.T_waste_C,
-                GTL_max_K=meaningful_max - p.T_waste_C,
-                message="OK",
-            ))
-
-    return results
-
-
-def print_true_lift_table(points: Sequence[TrueLiftPoint]) -> None:
-    print("=" * 90)
-    print(f"{'T_waste[C]':>10} {'GTL_min[K]':>11} {'GTL_max[K]':>11} {'Status':>8}")
-    print("-" * 90)
-    for p in points:
-        status = "OK" if p.lift_feasible else "KEIN HUB"
-        gtl_min = f"{p.GTL_min_K:11.2f}" if p.lift_feasible else " " * 11
-        gtl_max = f"{p.GTL_max_K:11.2f}" if p.lift_feasible else " " * 11
-        print(f"{p.T_waste_C:10.2f} {gtl_min} {gtl_max} {status:>8}")
-        if not p.lift_feasible:
-            print(f"             -> {p.message}")
-    print("=" * 90)
-
-
 # ---------------------------------------------------------------------------
-# Sweep über Abwärmetemperatur
+# Sweep A: fixe, absolute Senkentemperatur T_11_C für alle T_waste-Werte
 # ---------------------------------------------------------------------------
 
 def sweep_feasibility(
@@ -555,22 +492,25 @@ def sweep_feasibility(
     *,
     initial_anchor_guess_C: Optional[float] = None,
 ) -> List[FeasibilityPoint]:
-    """Warmstart-verkettete Fenstersuche über ein T_waste-Raster.
+    """Warmstart-verkettete Fenstersuche über ein T_waste-Raster, mit einer
+    für ALLE Punkte FIXEN Senkentemperatur config.T_11_C (z.B. "ich habe
+    eine reale Anwendung, die genau 70°C braucht"). Bei niedrigem T_waste
+    kann das schlicht "kein Fenster" ergeben, weil T_11_C zu hoch angesetzt
+    ist -- nicht, weil die Anlage grundsätzlich keinen Hub liefern könnte.
+    Für "was ist bei dieser Abwärmetemperatur überhaupt sinnvoll erreichbar"
+    eignet sich sweep_relative_lift_window[_homotopy]() besser.
 
     T_waste_values_C sollte monoton (auf- oder absteigend) sein, damit der
     Warmstart von Punkt zu Punkt trägt -- analog zu sweep_parameter() in
     AHT_design_point_optimizer.py. Der Anker-Schätzwert für Punkt i+1 ist
     das zuletzt gefundene T12_max von Punkt i.
 
-    initial_anchor_guess_C: Startschätzwert NUR für den allerersten Punkt
-    (danach übernimmt die Warmstart-Kette). Ohne Angabe wird
-    config.T_11_C + T12_search_margin_C verwendet -- das ist bei niedrigem
-    T_waste_C oft SEHR weit von der tatsächlichen Lösung entfernt (siehe
-    Chat-Diagnose: ein Kontinuitäts-Walk kann eine ~60 K-Lücke durch einen
+    initial_anchor_guess_C: Startschätzwert NUR für den allerersten Punkt.
+    Ohne Angabe wird config.T_11_C + T12_search_margin_C verwendet -- das
+    kann bei niedrigem T_waste_C SEHR weit von der tatsächlichen Lösung
+    entfernt sein (ein Kontinuitäts-Walk kann eine grosse Lücke durch einen
     lösungsfreien Bereich nicht überbrücken, selbst mit kleinen Schritten).
-    Für einen guten Schätzwert eignet sich z.B. die optimistische
-    Dühring-Obergrenze aus AHT_duehring_screening.estimate_max_gtl() --
-    siehe sweep_true_lift_window(), die genau das tut.
+    Ein guter Schätzwert kommt z.B. aus _duehring_initial_guess_C().
     """
     points: List[FeasibilityPoint] = []
     x0_carry: Optional[np.ndarray] = None
@@ -606,43 +546,34 @@ def sweep_feasibility(
 
 
 # ---------------------------------------------------------------------------
-# Fenster mit MITSKALIERENDER Mindest-Nutztemperatur (T11 = T_waste + Hub)
+# Sweep B: mitskalierende Mindest-Nutztemperatur T11 = T_waste + Hub
 # ---------------------------------------------------------------------------
-#
-# sweep_feasibility() hält T_11_C für ALLE T_waste-Werte auf demselben
-# absoluten Wert fest (z.B. immer 70°C) -- das erzwingt bei niedrigem
-# T_waste einen unrealistisch grossen Hub und lässt das Fenster dort
-# unnötig "unlösbar" wirken.
-#
-# sweep_relative_lift_window() setzt T_11_C stattdessen PRO PUNKT als
-# T_waste_C + min_lift_offset_C: eine Design-VORGABE, die mit der
-# Abwärmetemperatur mitskaliert ("ich will mindestens X Kelvin Hub über die
-# jeweilige Abwärme"), statt ein fixes Absolutziel. Das gefundene Fenster
-# [T12_min, T12_max] ist dann direkt als "welche Nutztemperatur kann ich mir
-# bei dieser Abwärmetemperatur sinnvoll aussuchen" lesbar -- min_lift_offset_C
-# ist dabei nur ein technischer Ankerpunkt für die Suche, keine reale
-# Anforderung; die eigentliche Entscheidung (welches T11 ihr real wählt)
-# trefft ihr anhand des ganzen abgelesenen Fensters.
 
 def sweep_relative_lift_window(
     T_waste_values_C: Sequence[float],
     config: FeasibilitySweepConfig,
     *,
-    min_lift_offset_C: float = 5.0,
+    min_lift_offset_C: Optional[float] = None,
 ) -> List[FeasibilityPoint]:
     """Wie sweep_feasibility(), aber T_11_C wird für jeden Punkt individuell
     als T_waste_C + min_lift_offset_C gesetzt statt global fix (siehe
-    Abschnitts-Docstring). Nutzt denselben Dühring-informierten
-    Startschätzwert für den allerersten Punkt wie sweep_true_lift_window().
+    Modul-Docstring "Kernkonzept"). min_lift_offset_C ohne Angabe:
+    config.min_lift_offset_C.
+
+    Macht pro T_waste-Punkt EINEN Sprung (mit Kontinuitäts-Walk nur in T12,
+    T_waste bleibt dabei fest). Reicht, solange der Sprung zwischen zwei
+    T_waste-Werten selbst klein genug ist -- für grössere Sprünge (z.B.
+    10 K+) sweep_relative_lift_window_homotopy() verwenden, die das
+    automatisch mit adaptiver Schrittweite abfängt.
     """
-    from dataclasses import replace
+    offset = min_lift_offset_C if min_lift_offset_C is not None else config.min_lift_offset_C
 
     points: List[FeasibilityPoint] = []
     x0_carry: Optional[np.ndarray] = None
     anchor_guess_carry: Optional[float] = None
 
     for i, T_waste_C in enumerate(T_waste_values_C):
-        T11_this = T_waste_C + min_lift_offset_C
+        T11_this = T_waste_C + offset
         config_point = replace(config, T_11_C=T11_this)
 
         if x0_carry is None:
@@ -676,24 +607,17 @@ def sweep_relative_lift_window(
 
 
 # ---------------------------------------------------------------------------
-# Adaptive Homotopie über T_waste (nicht nur über T12)
+# Sweep C: wie B, aber mit adaptiver Homotopie ZWISCHEN den Rasterpunkten
 # ---------------------------------------------------------------------------
 #
-# sweep_relative_lift_window() macht pro T_waste-Punkt EINEN Sprung (mit
-# Kontinuitäts-Walk nur in T12, T_waste bleibt bei diesem Walk fest). Das
-# reicht, solange der SPRUNG zwischen zwei T_waste-Werten selbst klein genug
-# ist -- ist er es nicht (siehe Chat: schon 10 K T_waste-Sprung kann die
-# Kette reissen lassen, obwohl ausreichend thermodynamischer Spielraum laut
-# Dühring-Screening vorhanden ist), bleibt der generische initial_guess()-
-# Kaltstart in einem falschen Zustand stecken (nachgewiesen: alle
-# Pinch-Residuen bleiben deutlich von 0 entfernt, obwohl scipy "success"
-# meldet -- ein Scheinkonvergenzpunkt, kein echter).
-#
-# Die Funktionen hier lösen das analog zu AHT_stable_design_point.py, nur
-# mit T_waste (statt dT_min) als Homotopie-Parameter: (T_waste, T12) werden
-# GEMEINSAM in kleinen, adaptiven Schritten bewegt (GTL = T12 - T_waste
-# dabei näherungsweise konstant gehalten), mit automatischer
-# Schrittweitenhalbierung bei Fehlschlag und Vergrösserung bei Erfolg.
+# (T_waste, T12) werden GEMEINSAM in kleinen, adaptiven Schritten bewegt
+# (GTL = T12 - T_waste dabei näherungsweise konstant gehalten), mit
+# automatischer Schrittweitenhalbierung bei Fehlschlag und Vergrösserung
+# bei Erfolg -- notwendig, weil auch T_waste-Sprünge von nur ~10 K die
+# Warmstart-Kette reissen lassen können, obwohl ausreichend Lösungsraum
+# existiert (Scheinkonvergenz: scipy meldet "success", aber die
+# Pinch-Residuen weichen deutlich von 0 ab). Das ist die empfohlene,
+# robusteste Variante -- siehe __main__ unten.
 
 def _window_at_point(
     T_waste_C: float, config: FeasibilitySweepConfig, x0_seed: np.ndarray, anchor_guess_C: float,
@@ -766,15 +690,19 @@ def sweep_relative_lift_window_homotopy(
     T_waste_values_C: Sequence[float],
     config: FeasibilitySweepConfig,
     *,
-    min_lift_offset_C: float = 5.0,
+    min_lift_offset_C: Optional[float] = None,
     homotopy_step_initial_C: float = 3.0,
     homotopy_step_min_C: float = 0.25,
 ) -> List[FeasibilityPoint]:
     """Wie sweep_relative_lift_window(), aber mit adaptiver Homotopie
     ZWISCHEN den Rasterpunkten (siehe Abschnitts-Docstring) statt eines
-    einzelnen Sprungs. T_waste_values_C in Wanderreihenfolge angeben (z.B.
-    absteigend von einem bekannt robusten Startwert wie 65°C).
+    einzelnen Sprungs -- die empfohlene, robusteste Variante. T_waste_values_C
+    in Wanderreihenfolge angeben (z.B. absteigend von einem hohen,
+    unproblematischen Startwert). min_lift_offset_C ohne Angabe:
+    config.min_lift_offset_C.
     """
+    offset = min_lift_offset_C if min_lift_offset_C is not None else config.min_lift_offset_C
+
     points: List[FeasibilityPoint] = []
     T_waste_cur: Optional[float] = None
     T12_cur: Optional[float] = None
@@ -782,7 +710,7 @@ def sweep_relative_lift_window_homotopy(
 
     for i, T_waste_target in enumerate(T_waste_values_C):
         if x0_cur is None:
-            T11_first = T_waste_target + min_lift_offset_C
+            T11_first = T_waste_target + offset
             config_first = replace(config, T_11_C=T11_first)
             guess_C = (
                 _duehring_initial_guess_C(T_waste_target, config)
@@ -794,7 +722,7 @@ def sweep_relative_lift_window_homotopy(
             reported_T_waste = T_waste_target
         else:
             reached_T_waste, reached_T12, reached_x0, fully_reached = _homotopy_walk_T_waste(
-                T_waste_cur, T12_cur, x0_cur, T_waste_target, config, min_lift_offset_C,
+                T_waste_cur, T12_cur, x0_cur, T_waste_target, config, offset,
                 step_initial_C=homotopy_step_initial_C, step_min_C=homotopy_step_min_C,
             )
             if not fully_reached:
@@ -803,14 +731,13 @@ def sweep_relative_lift_window_homotopy(
                     f"angehalten bei {reached_T_waste:.2f} °C "
                     f"(Schrittweite unter {homotopy_step_min_C:.2f} K gefallen)."
                 )
-            T11_target = reached_T_waste + min_lift_offset_C
+            T11_target = reached_T_waste + offset
             config_target = replace(config, T_11_C=T11_target)
             # Sicherheitsabstand: reached_T12 kann (durch Bisektionstoleranz/
             # Rundung) sehr nah an T11_target liegen -- ein Anker direkt auf
-            # der Grenze verpasst schmale Fenster, siehe Chat-Diagnose bei
-            # T_waste=49.38°C (echtes, aber nur ~1K breites Fenster wurde
-            # vom 2K-Schritt übersprungen). Anker bewusst spürbar oberhalb
-            # T11_target ansetzen.
+            # der Grenze verpasst schmale Fenster (die kurz vor einer echten
+            # Machbarkeitsgrenze auftreten können, siehe Modul-Docstring).
+            # Anker bewusst spürbar oberhalb T11_target ansetzen.
             anchor_guess_C = max(reached_T12, T11_target + 1.0)
             outcome = _window_at_point(reached_T_waste, config_target, reached_x0, anchor_guess_C)
             reported_T_waste = reached_T_waste
@@ -839,6 +766,10 @@ def sweep_relative_lift_window_homotopy(
     return points
 
 
+# ---------------------------------------------------------------------------
+# Ausgabe: Tabelle + Plot
+# ---------------------------------------------------------------------------
+
 def print_sweep_table(points: Sequence[FeasibilityPoint]) -> None:
     print("=" * 100)
     print(
@@ -859,7 +790,7 @@ def plot_feasibility_sweep(
     points: Sequence[FeasibilityPoint],
     *,
     duehring_reference: Optional[Sequence] = None,
-    save_path: Optional[str] = "Design_Point_optimization/feasibility_sweep_GTL.png",
+    save_path: Optional[str] = f"Design_Point_optimization/{plot_name}.png",
     show: bool = True,
 ):
     """Plottet das feasible GTL-Fenster vs. Abwärmetemperatur; optional
@@ -918,59 +849,16 @@ def plot_feasibility_sweep(
 if __name__ == "__main__":
     config = FeasibilitySweepConfig()
 
-    # ------------------------------------------------------------------
-    # Hauptauswertung: für jede Abwärmetemperatur T_waste in [45, 85]°C das
-    # erreichbare Nutztemperatur-/GTL-Fenster, mit einer MITSKALIERENDEN
-    # Mindest-Nutztemperatur T11 = T_waste + MIN_LIFT_OFFSET_C (Design-
-    # Vorgabe "mindestens X Kelvin Hub über die jeweilige Abwärme"), statt
-    # eines global fixen T_11_C (siehe sweep_relative_lift_window()-
-    # Abschnitts-Docstring, warum das bei niedrigem T_waste sonst unnötig
-    # als "unlösbar" erscheint). Rückkühltemperatur T_17_C bleibt konstant
-    # (config.T_17_C) -- als nächsten Schritt könnt ihr die auch variieren.
-    #
-    # MODERATE Pinch-Werte (5K überall) statt der scharfen config-Defaults
-    # (3K): mit sehr scharfen Pinch-Werten kann das feasible T12-Fenster so
-    # schmal werden, dass es vom Suchraster übersprungen wird (siehe
-    # Chat-Diagnose). Die scharfen 3K-Werte sind ein BAUKRITERIUM für die
-    # spätere UA-Feinauslegung eines konkret ausgewählten Punktes, keine
-    # Voraussetzung für diese Explorations-Karte.
-    #
-    # Externe Approach-Werte auf 4K/4K/3K reduziert (statt 7K/7K/6K): mit
-    # den grösseren Approach-Werten schliesst sich das feasible Fenster
-    # (bei MIN_LIFT_OFFSET_C=5K) bereits zwischen 55°C und 65°C -- ein
-    # ECHTER Umkehrpunkt (Fensterbreite geht reproduzierbar gegen 0, nicht
-    # nur ein übersprungenes schmales Fenster). Mit den kleineren
-    # Approach-Werten (= mehr externer Massenstrom, weniger "aufgebrauchtes"
-    # thermisches Budget für die 5 internen 5K-Pinches) verschiebt sich
-    # dieser Umkehrpunkt runter auf ca. 49-50°C -- siehe Chat, dort auch,
-    # wie man das mit noch kleineren Approach-Werten oder einem kleineren
-    # MIN_LIFT_OFFSET_C weiter nach unten schieben kann.
-    #
-    # sweep_relative_lift_window_homotopy() statt sweep_relative_lift_window():
-    # nutzt eine ADAPTIVE Homotopie zwischen den Rasterpunkten (Schrittweite
-    # wird bei Fehlschlag automatisch halbiert, bei Erfolg vergrössert,
-    # analog zu AHT_stable_design_point.py) -- notwendig, weil auch
-    # T_waste-Sprünge von nur 10K die Warmstart-Kette reissen lassen können,
-    # obwohl ausreichend Lösungsraum existiert (siehe Chat-Diagnose:
-    # Scheinkonvergenz mit deutlich verletzten Pinch-Residuen trotz
-    # scipy-"success").
-    # ------------------------------------------------------------------
-    from dataclasses import replace as _replace
-
-    config_explore = _replace(
-        config,
-        dT_min_shex=5.0, dT_min_des=5.0, dT_min_cond=5.0, dT_min_evap=5.0, dT_min_abs=5.0,
-        dT_approach_des_C=4.0, dT_approach_evap_C=4.0, dT_approach_cond_C=3.0,
+    # Alle physikalischen Annahmen (Pinch-Werte, Approach-Werte,
+    # Mindest-Hub-Vorgabe min_lift_offset_C, T_17_C) stehen zentral in
+    # FeasibilitySweepConfig oben -- dort anpassen, nicht hier.
+    T_WASTE_RANGE_C = list(
+        np.arange(T_WASTE_START_C, T_WASTE_END_C - 0.5 * T_WASTE_STEP_C, -T_WASTE_STEP_C)
     )
 
-    MIN_LIFT_OFFSET_C = 5.0
-    T_WASTE_RANGE_C = list(np.arange(85.0, 44.0, -5.0))  # absteigend: 85 -> 50 (49-50°C ist die reale Grenze)
-
-    print(f"Erreichbares Nutztemperatur-Fenster, T11 = T_waste + {MIN_LIFT_OFFSET_C:.0f} K")
-    print(f"(T_17_C = {config_explore.T_17_C:.1f} °C konstant)")
-    points = sweep_relative_lift_window_homotopy(
-        T_WASTE_RANGE_C, config_explore, min_lift_offset_C=MIN_LIFT_OFFSET_C
-    )
+    print(f"Erreichbares Nutztemperatur-Fenster, T11 = T_waste + {config.min_lift_offset_C:.0f} K")
+    print(f"(T_17_C = {config.T_17_C:.1f} °C konstant)")
+    points = sweep_relative_lift_window_homotopy(T_WASTE_RANGE_C, config)
     print_sweep_table(points)
 
     duehring_reference = None
@@ -978,11 +866,38 @@ if __name__ == "__main__":
         from AHT_duehring_screening import sweep_waste_heat_temperature
 
         duehring_reference = sweep_waste_heat_temperature(
-            T_WASTE_RANGE_C, T17_C=config_explore.T_17_C,
-            dT_min_des=config_explore.dT_min_des, dT_min_evap=config_explore.dT_min_evap,
-            dT_min_cond=config_explore.dT_min_cond, dT_min_abs=config_explore.dT_min_abs,
+            T_WASTE_RANGE_C, T17_C=config.T_17_C,
+            dT_min_des=config.dT_min_des, dT_min_evap=config.dT_min_evap,
+            dT_min_cond=config.dT_min_cond, dT_min_abs=config.dT_min_abs,
         )
     except ImportError:
         pass
 
     plot_feasibility_sweep(points, duehring_reference=duehring_reference)
+
+    # Zusatzauswertungen: nutzen die oben bereits berechneten `points` weiter
+    # (keine erneute Sweep-Berechnung). Lazy Import, damit die beiden
+    # Skripte selbst weiterhin eigenständig importierbar/ausführbar bleiben.
+    if ENABLE_DUEHRING_MULTI_PLOT:
+        try:
+            from AHT_duehring_multi_process_plot import select_and_plot_duehring
+        except ImportError:
+            from Design_Point_optimization.AHT_duehring_multi_process_plot import (
+                select_and_plot_duehring,
+            )
+        select_and_plot_duehring(
+            points, every_nth=MULTI_PLOT_EVERY_NTH,
+            save_path=f"Design_Point_optimization/{duehring_plot_name}.png",
+        )
+
+    if ENABLE_QT_MULTI_PDF:
+        try:
+            from AHT_qt_multi_process_plot import select_and_plot_qt_pdf
+        except ImportError:
+            from Design_Point_optimization.AHT_qt_multi_process_plot import (
+                select_and_plot_qt_pdf,
+            )
+        select_and_plot_qt_pdf(
+            points, every_nth=MULTI_PLOT_EVERY_NTH,
+            save_path=f"Design_Point_optimization/{qt_pdf_name}.pdf",
+        )

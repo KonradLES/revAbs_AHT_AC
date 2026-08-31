@@ -1047,3 +1047,113 @@ def plot_duehring_operating_point(
         plt.show()
 
     return fig
+
+
+# =============================================================================
+# Mehrere AWT-Betriebspunkte im selben Dühring-Diagramm (je eine Farbe)
+# =============================================================================
+#
+# Wie plot_duehring_operating_point(), aber für einen Satz von Ergebnissen
+# (z.B. je ein Betriebspunkt pro untersuchter Abwärmetemperatur aus
+# Design_Point_optimization/AHT_feasibility_sweep.py) -- jeder Prozess wird
+# als eigenes Sechseck in einer eigenen Farbe eingezeichnet, damit sich die
+# Betriebsbereiche verschiedener Abwärmetemperaturen im selben Dühring-
+# Diagramm vergleichen lassen. Auf die einzelnen Zustands-Textlabels (1*, 3,
+# 6, ...) wird hier verzichtet -- bei mehreren überlagerten Sechsecken würde
+# das nur unleserlich. Die Zuordnung Farbe -> Abwärmetemperatur steht in der
+# Legende.
+
+def plot_duehring_multi_operating_points(
+    entries: Iterable[Tuple[float, AWTResult]],
+    *,
+    variant: Literal["mole", "mass"] = "mass",
+    show: bool = True,
+    save_path: Optional[str] = None,
+    dpi: int = 300,
+    run_checks: bool = False,
+    cmap_name: str = "coolwarm",
+    title: str = "AWT – Dühring-Diagramm, mehrere Abwärmetemperaturen",
+):
+    """Zeichnet mehrere AWT-Betriebspunkte (je ein (T_waste_C, AWTResult)-Paar
+    aus `entries`) als farblich unterschiedene Sechsecke in ein gemeinsames
+    Dühring-Diagramm.
+
+    Parameters
+    ----------
+    entries:
+        Iterable von (T_waste_C, result)-Paaren. result muss von solve_awt()
+        stammen (siehe plot_duehring_operating_point()). T_waste_C wird NUR
+        für die Farbzuordnung (Verlauf kalt->warm) und die Legendenbeschriftung
+        verwendet, nicht aus `result` neu bestimmt (T_waste ist eine externe
+        Eingangsgrösse, kein interner Modellzustand).
+    cmap_name:
+        Matplotlib-Colormap für die Farbzuordnung nach T_waste_C. "coolwarm"
+        bildet niedrige Abwärmetemperaturen blau und hohe rot ab.
+    """
+    entries = sorted(entries, key=lambda e: e[0])
+    if not entries:
+        raise ValueError("plot_duehring_multi_operating_points: entries ist leer.")
+
+    for T_waste_C, result in entries:
+        if not result.solve_info.final_point_evaluable:
+            raise ValueError(
+                f"Dühring-Diagramm kann nicht erzeugt werden: Endpunkt bei "
+                f"T_waste={T_waste_C:.2f} °C ist nicht physikalisch auswertbar "
+                "(result.solve_info.final_point_evaluable=False)."
+            )
+
+    if run_checks:
+        run_self_checks()
+
+    fig, ax = create_duehring_figure(variant)
+
+    T_values = [e[0] for e in entries]
+    T_lo, T_hi = min(T_values), max(T_values)
+    T_span = (T_hi - T_lo) or 1.0
+    cmap = plt.get_cmap(cmap_name)
+
+    process_handles: list[Line2D] = []
+    process_labels: list[str] = []
+
+    for T_waste_C, result in entries:
+        color = cmap((T_waste_C - T_lo) / T_span)
+        positions = _operating_point_positions(result)
+
+        xs_hex = [positions[sid][0] for sid in _HEXAGON_STATE_ORDER]
+        ys_hex = [positions[sid][1] for sid in _HEXAGON_STATE_ORDER]
+        (cycle_handle,) = ax.plot(
+            xs_hex, ys_hex, "o-", color=color, linewidth=2.0, markersize=4.5,
+            zorder=12, label=f"T_waste = {T_waste_C:.0f} °C",
+        )
+
+        for pair in (_DIAGONAL_STATE_PAIR_WEAK, _DIAGONAL_STATE_PAIR_STRONG):
+            x_pair = [positions[sid][0] for sid in pair]
+            y_pair = [positions[sid][1] for sid in pair]
+            ax.plot(x_pair, y_pair, "--", color=color, linewidth=1.1, alpha=0.85, zorder=11)
+
+        process_handles.append(cycle_handle)
+        process_labels.append(f"T_waste = {T_waste_C:.0f} °C")
+
+    existing_legend = ax.get_legend()
+    if existing_legend is not None:
+        handles = list(existing_legend.legend_handles) + process_handles
+        labels_ = [t.get_text() for t in existing_legend.get_texts()] + process_labels
+    else:
+        handles, labels_ = process_handles, process_labels
+
+    ax.legend(
+        handles=handles, labels=labels_,
+        loc="upper left", frameon=True, framealpha=0.94, fontsize=8.5,
+    )
+
+    fig.suptitle(title, fontsize=13, fontweight="bold", y=0.995)
+
+    if save_path is not None:
+        path = Path(save_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(path, dpi=dpi, bbox_inches="tight")
+
+    if show:
+        plt.show()
+
+    return fig
