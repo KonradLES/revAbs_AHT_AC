@@ -142,6 +142,12 @@ class DuehringScreeningResult:
     GTL_max_K: float = float("nan")
     crystallization_safe: bool = True
     crystallization_message: str = ""
+    # True, wenn x_strong auf die Löslichkeitsgrenze geklemmt wurde (siehe
+    # estimate_max_gtl()): T12_max_K/GTL_max_K sind dann NICHT mehr durch den
+    # Desorber-Pinch (volle Antriebstemperatur ausgenutzt), sondern durch die
+    # Kristallisationsgrenze limitiert -- weiterhin eine gültige, nur eben
+    # löslichkeits- statt temperaturlimitierte obere Schranke.
+    crystallization_limited: bool = False
 
 
 def estimate_max_gtl(
@@ -207,7 +213,44 @@ def estimate_max_gtl(
         T_gen_K, w_strong, label="Desorberaustritt (Dühring-Screening)"
     )
 
-    # 5) Absorber: gleiche (starke) Konzentration bei p_high -> T12_max
+    # 4b) Auf die Löslichkeitsgrenze klemmen, statt den Punkt zu verwerfen.
+    #
+    # x_strong oben ist die Konzentration, deren Siedepunkt bei p_low GENAU
+    # der vollen Antriebstemperatur (T13 - dT_min_des) entspricht. Ist diese
+    # Konzentration nicht löslich, kann die reale Lösung dort NICHT hin
+    # aufkonzentriert werden -- sie kristallisiert vorher aus und bleibt an
+    # der Löslichkeitsgrenze stehen. Der Desorber ist dann nicht mehr
+    # Pinch-, sondern löslichkeitslimitiert (es steht mehr Antriebstemperatur
+    # zur Verfügung, als genutzt werden kann). GTL_max wird deshalb aus DER
+    # geklemmten Konzentration neu bestimmt -- weiterhin eine gültige obere
+    # Schranke, nur mit anderer bindender Nebenbedingung.
+    crystallization_limited = False
+    if validity.crystallization_checked and not validity.crystallization_safe:
+        # Bisektion DIREKT auf der echten Sicherheitsprüfung (nicht nur auf
+        # der T->w-Korrelation): die beiden Kristallisationskorrelationen
+        # (T_cr(w) und w_cr(T)) sind unabhängige Fits, keine exakten
+        # Inversen voneinander -- bei höheren Temperaturen weicht das um
+        # mehr als 1 K auseinander. w=0.57 ist per Definition immer sicher
+        # (siehe validate_solution_state), w_strong ist hier per Vorbedingung
+        # unsicher -- klassische Bisektion konvergiert auf die tatsächliche
+        # Grenze, unabhängig davon, welche der beiden Korrelationen bindet.
+        w_lo, w_hi = 0.57, w_strong
+        for _ in range(60):
+            w_mid = 0.5 * (w_lo + w_hi)
+            if lp.validate_solution_state(T_gen_K, w_mid).crystallization_safe:
+                w_lo = w_mid
+            else:
+                w_hi = w_mid
+
+        x_strong = lp.x_from_w_libr(w_lo)
+        w_strong = lp.w_libr_from_x(x_strong)
+        validity = lp.validate_solution_state(
+            T_gen_K, w_strong,
+            label="Desorberaustritt (Dühring-Screening, an Löslichkeitsgrenze geklemmt)",
+        )
+        crystallization_limited = True
+
+    # 5) Absorber: gleiche (starke, ggf. geklemmte) Konzentration bei p_high -> T12_max
     try:
         T_abs_solution_K = lp.T_sat_solution_from_p_x(p_high, x_strong)
     except Exception as exc:
@@ -219,6 +262,7 @@ def estimate_max_gtl(
             T_gen_C=kelvin_to_celsius(T_gen_K), T10_C=kelvin_to_celsius(T10_K),
             crystallization_safe=validity.crystallization_safe,
             crystallization_message=validity.message,
+            crystallization_limited=crystallization_limited,
         )
 
     T12_max_K = T_abs_solution_K - dT_min_abs
@@ -233,6 +277,8 @@ def estimate_max_gtl(
             f"T12_max ({T12_max_C:.2f} °C) liegt nicht über T15 ({T15_C:.2f} °C) "
             "-- kein positiver GTL erreichbar."
         )
+    elif crystallization_limited:
+        message = "OK (an Löslichkeitsgrenze geklemmt, nicht voller Desorber-Pinch ausgenutzt)."
     else:
         message = "OK (optimistische obere Schranke)."
 
@@ -244,6 +290,7 @@ def estimate_max_gtl(
         T12_max_C=T12_max_C, GTL_max_K=GTL_max_K,
         crystallization_safe=validity.crystallization_safe,
         crystallization_message=validity.message,
+        crystallization_limited=crystallization_limited,
     )
 
 
@@ -280,7 +327,12 @@ def print_results_table(results: Sequence[DuehringScreeningResult]) -> None:
     )
     print("-" * 100)
     for r in results:
-        krist = "sicher" if r.crystallization_safe else "RISIKO"
+        if not r.crystallization_safe:
+            krist = "RISIKO"
+        elif r.crystallization_limited:
+            krist = "geklemmt"
+        else:
+            krist = "sicher"
         print(
             f"{r.T13_C:10.2f} {r.T17_C:7.2f} {r.x_strong:9.4f} {r.w_strong:9.4f} "
             f"{r.T12_max_C:11.2f} {r.GTL_max_K:11.2f} {krist:>10}  {r.message}"
@@ -296,7 +348,7 @@ def plot_gtl_vs_waste_heat(
     dT_min_evap: float = 5.0,
     dT_min_cond: float = 5.0,
     dT_min_abs: float = 5.0,
-    save_path: Optional[str] = "Design_Point_optimization/duehring_screening_GTL_5K.png",
+    save_path: Optional[str] = "Design_Point_optimization/Plots/duehring_screening_GTL_3K.png",
     show: bool = True,
 ):
     """Eine Kurve GTL_max vs. Abwärmetemperatur je T17-Wert. Infeasible/
@@ -346,12 +398,12 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------
     # HIER ANPASSEN: Pinch-Annahmen für die optimistische Abschätzung
     # ------------------------------------------------------------------
-    DT_MIN_DES = 5.0
-    DT_MIN_EVAP = 5.0
-    DT_MIN_COND = 5.0
-    DT_MIN_ABS = 5.0
+    DT_MIN_DES = 3.0
+    DT_MIN_EVAP = 3.0
+    DT_MIN_COND = 3.0
+    DT_MIN_ABS = 3.0
 
-    T_WASTE_RANGE_C = list(np.arange(40.0, 95.0, 5.0))
+    T_WASTE_RANGE_C = list(np.arange(40.0, 100.0, 5.0))
     T17_CURVES_C = [15.0, 20.0, 25.0]
 
     print("Dühring-Screening für T17 = 20 °C:")

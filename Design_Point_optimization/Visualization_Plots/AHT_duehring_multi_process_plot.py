@@ -56,7 +56,7 @@ T_WASTE_STEP_C = 5.0
 # Diagramm: 85, 75, 65, ...).
 PLOT_EVERY_NTH = 2
 
-PLOT_SAVE_PATH = "Design_Point_optimization/duehring_multi_process.png"
+PLOT_SAVE_PATH = "Design_Point_optimization/Plots/duehring_multi_process.png"
 DUEHRING_VARIANT = "mass"  # "mass" oder "mole"
 
 

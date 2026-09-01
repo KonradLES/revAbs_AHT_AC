@@ -83,16 +83,16 @@ class DesignPointConfig:
     """Fixierte Randbedingungen des AWT-Designpunkts."""
 
     # Externe Eintrittstemperaturen [°C]
-    T_11_C: float = 70.0    # Nutzwärmesenke (Absorber), kalter Eintritt
-    T_13_C: float = 55.0    # Abwärmequelle (Desorber/Verdampfer, routing-abhängig)
-    T_15_C: float = 55.0    # Abwärmequelle (Desorber/Verdampfer, routing-abhängig)
+    T_11_C: float = 63.0    # Nutzwärmesenke (Absorber), kalter Eintritt
+    T_13_C: float = 57.0    # Abwärmequelle (Desorber/Verdampfer, routing-abhängig)
+    T_15_C: float = 57.0    # Abwärmequelle (Desorber/Verdampfer, routing-abhängig)
     T_17_C: float = 20.0    # Rückkühlung (Kondensator), kalter Eintritt
 
     # Externe Austrittstemperatur-Spezifikationen [°C]
-    T12_spec_C: float = 80.0    # Nutzwärmesenke, Austritt (Absorber)
-    T14_spec_C: float = 48.0    # Abwärmequelle, Austritt (Desorber)
-    T16_spec_C: float = 48.0    # Abwärmequelle, Austritt (Verdampfer)
-    T18_spec_C: float = 26.0    # Rückkühlung, Austritt (Kondensator)
+    T12_spec_C: float = 67.0    # Nutzwärmesenke, Austritt (Absorber)
+    T14_spec_C: float = 52.0    # Abwärmequelle, Austritt (Desorber)
+    T16_spec_C: float = 52.0    # Abwärmequelle, Austritt (Verdampfer)
+    T18_spec_C: float = 24.0    # Rückkühlung, Austritt (Kondensator)
 
     # Design-Nutzwärmeleistung [kW] (am Absorber, NICHT am Verdampfer!)
     Qabs_spec_kW: float = 500.0
@@ -128,7 +128,7 @@ class DesignPointConfig:
     penalty_residual_weight: float = 20.0
 
     make_convergence_plot: bool = True
-    convergence_plot_path: str = "stage1_convergence_AHT.png"
+    convergence_plot_path: str = "Design_Point_optimization/Plots/AHT_stage1_convergence_AHT.png"
 
     # Optionaler manueller Startvektor (interne Modell-Einheiten, K/-, Reihenfolge
     # wie primary_variables) als Fallback für den ALLERERSTEN Optimierer-Aufruf,
@@ -155,7 +155,7 @@ class DesignPointConfig:
     # Stufe 2: Teillast-Verifikation an/aus. Wenn False, wird verify_part_load()
     # gar nicht erst aufgerufen (spart die paar Sekunden, hauptsächlich nützlich
     # während du an Stufe 1 experimentierst und Stufe 2 gerade nicht brauchst).
-    run_stage2: bool = True
+    run_stage2: bool = False
 
 
 @dataclass

@@ -48,7 +48,7 @@ T_WASTE_END_C = 40.0
 T_WASTE_STEP_C = 5.0
 PLOT_EVERY_NTH = 2  # "jede zweite" untersuchte Abwärmetemperatur
 
-PDF_SAVE_PATH = "Design_Point_optimization/qt_multi_process.pdf"
+PDF_SAVE_PATH = "Design_Point_optimization/Plots/qt_multi_process.pdf"
 
 
 def select_and_plot_qt_pdf(

@@ -89,7 +89,7 @@ class FeasibilitySweepConfig:
     # --- Betriebspunkt-Randbedingungen -------------------------------------
     T_11_C: float = 70.0     # Nutzwärmesenke, kalter Eintritt (nur von
                               # sweep_feasibility() verwendet, siehe dort)
-    T_17_C: float = 15.0     # Rückkühlung, kalter Eintritt
+    T_17_C: float = 20.0     # 15.0  Rückkühlung, kalter Eintritt
     Qabs_spec_kW: float = 500.0
 
     # --- Mindest-Hub-Vorgabe (T11 = T_waste + min_lift_offset_C) -----------
@@ -123,9 +123,9 @@ class FeasibilitySweepConfig:
     # Kleinere Werte = mehr externer Massenstrom = mehr "thermisches Budget"
     # für die Pinch-Werte oben, verschiebt aber auch die Machbarkeitsgrenze
     # bei niedrigem T_waste nach unten (siehe Modul-Docstring).
-    dT_approach_des_C: float = 8.0      # 4.0
-    dT_approach_evap_C: float = 8.0     # 4.0
-    dT_approach_cond_C: float = 6.0     # 3.0
+    dT_approach_des_C: float = 4.0      # 4.0
+    dT_approach_evap_C: float = 4.0     # 4.0
+    dT_approach_cond_C: float = 3.0     # 3.0
 
     desorber_evaporator_routing_mode: str = "parallel"
     cp_w_kJkgK: float = 4.18
@@ -173,17 +173,17 @@ T_WASTE_START_C = 85.0   # höchste untersuchte Abwärmetemperatur [°C]
 T_WASTE_END_C = 40.0     # tiefste GEWÜNSCHTE Abwärmetemperatur [°C] (evtl. nicht erreichbar, s.o.)
 T_WASTE_STEP_C = 5.0     # Rasterabstand [K]
 
-plot_name = "feasibility_sweep_15_ex_8_8_6"
+plot_name = "feasibility_sweep_10_PP_5"
 
 # Zusatzauswertungen aus DEMSELBEN Sweep, ohne ihn erneut zu rechnen (siehe
 # __main__ unten) -- jeweils per ENABLE_*-Schalter einzeln abschaltbar. Die
 # zugrundeliegenden Skripte (AHT_duehring_multi_process_plot.py /
 # AHT_qt_multi_process_plot.py) bleiben auch eigenständig lauffähig.
 ENABLE_DUEHRING_MULTI_PLOT = True
-duehring_plot_name = "duehring_multi_process_15_ex_8_8_6"
+duehring_plot_name = "duehring_multi_process_10_PP_5"
 
 ENABLE_QT_MULTI_PDF = True
-qt_pdf_name = "qt_multi_process_15_ex_8_8_6"
+qt_pdf_name = "qt_multi_process_10_PP_5"
 
 # Wie viele der untersuchten Abwärmetemperaturen in den beiden
 # Zusatzauswertungen eingezeichnet werden (2 = jede zweite) -- bei zu vielen
@@ -790,7 +790,7 @@ def plot_feasibility_sweep(
     points: Sequence[FeasibilityPoint],
     *,
     duehring_reference: Optional[Sequence] = None,
-    save_path: Optional[str] = f"Design_Point_optimization/{plot_name}.png",
+    save_path: Optional[str] = f"Design_Point_optimization/Plots/{plot_name}.png",
     show: bool = True,
 ):
     """Plottet das feasible GTL-Fenster vs. Abwärmetemperatur; optional
@@ -880,24 +880,24 @@ if __name__ == "__main__":
     # Skripte selbst weiterhin eigenständig importierbar/ausführbar bleiben.
     if ENABLE_DUEHRING_MULTI_PLOT:
         try:
-            from AHT_duehring_multi_process_plot import select_and_plot_duehring
+            from Design_Point_optimization.Visualization_Plots.AHT_duehring_multi_process_plot import select_and_plot_duehring
         except ImportError:
-            from Design_Point_optimization.AHT_duehring_multi_process_plot import (
+            from Design_Point_optimization.Visualization_Plots.AHT_duehring_multi_process_plot import (
                 select_and_plot_duehring,
             )
         select_and_plot_duehring(
             points, every_nth=MULTI_PLOT_EVERY_NTH,
-            save_path=f"Design_Point_optimization/{duehring_plot_name}.png",
+            save_path=f"Design_Point_optimization/Plots/{duehring_plot_name}.png",
         )
 
     if ENABLE_QT_MULTI_PDF:
         try:
-            from AHT_qt_multi_process_plot import select_and_plot_qt_pdf
+            from Design_Point_optimization.Visualization_Plots.AHT_qt_multi_process_plot import select_and_plot_qt_pdf
         except ImportError:
-            from Design_Point_optimization.AHT_qt_multi_process_plot import (
+            from Design_Point_optimization.Visualization_Plots.AHT_qt_multi_process_plot import (
                 select_and_plot_qt_pdf,
             )
         select_and_plot_qt_pdf(
             points, every_nth=MULTI_PLOT_EVERY_NTH,
-            save_path=f"Design_Point_optimization/{qt_pdf_name}.pdf",
+            save_path=f"Design_Point_optimization/Plots/{qt_pdf_name}.pdf",
         )
