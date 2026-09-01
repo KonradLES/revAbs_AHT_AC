@@ -26,7 +26,7 @@ from Models.AC_Pinch_Point import (
     trace_model,
 )
 
-# DESORBER_SPEC_MODE = "m11"
+# DESORBER_SPEC_MODE = "m11"hallo
 DESORBER_SPEC_MODE = "T12"
 
 # ABSORBER_SPEC_MODE = "m13"
