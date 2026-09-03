@@ -140,70 +140,25 @@ class FeasibilitySweepConfig:
     T18_spec_C: float = 5.0     # 5.0 feste Verdampferaustrittstemperatur (Nutzkälte)
     Qevap_spec_kW: float = 40.9
 
-    # --- Pinch-Werte (Design-Annahme, kein Optimierungsziel) ---------------
-    # Minimale Temperaturdifferenz am "Pinch Point" jedes Wärmeübertragers.
-    # 5 K ist ein moderater, robust auffindbarer Wert für die Exploration --
-    # für die reale UA-Feinauslegung eines konkret ausgewählten Punktes ggf.
-    # schärfer (kleiner) ansetzen, siehe AC_design_point_optimizer.py.
-    #
-    # dT_min_evap ist die EINE Ausnahme mit einem eigenen, kleineren
-    # Default: der Verdampfer hat eine harte Modellgrenze T10 >= 1 °C (kein
-    # Eis modelliert). Die interne Verdampfungstemperatur ergibt sich
-    # näherungsweise als T18_spec_C - dT_min_evap -- bei T18_spec_C=5.0 wäre
-    # ein 5 K-Pinch hier strukturell unlösbar (T10 -> 0 °C, exakt auf der
-    # Grenze). AC_design_point_optimizer.py verwendet aus demselben Grund
-    # selbst schon einen kleineren Floor (3.0 K) für den Verdampfer als für
-    # die übrigen vier Wärmeübertrager. Faustregel: dT_min_evap sollte
-    # spürbar unter (T18_spec_C - 1 °C) bleiben.
     dT_min_shex: float = 5.0
     dT_min_des: float = 5.0
     dT_min_cond: float = 5.0
-    dT_min_evap: float = 3.0
+    dT_min_evap: float = 3.0    # T18 - dT_min_evap >= 0 °C, sonst Kaltstartfehler
     dT_min_abs: float = 5.0
 
     # --- Externe Approach-Werte (Design-Annahme) ----------------------------
-    # Alle vier "anderen" externen Temperaturen werden aus den beiden
-    # eigentlichen Stellgrössen (T_rueck aus dem Sweep-Raster, T11 aus der
-    # Fenstersuche) über einen festen Approach abgeleitet:
-    #   T12 = T11      - dT_approach_des_C   (Desorber-Rücklauf, abgekühlt)
-    #   T14 = T_rueck   + dT_approach_abs_C   (Absorber, erwärmt)
-    #   T16 = T_rueck   + dT_approach_cond_C  (Kondensator, erwärmt)
-    #   T17 = T18_spec_C + dT_approach_evap_C (Verdampfer, warmer Eintritt)
-    # Kleinere Werte = mehr externer Massenstrom = mehr "thermisches Budget"
-    # für die Pinch-Werte oben, verschieben aber auch die Fenstergrenzen.
-    # Der eigentliche Grund für den früher hier vermuteten "unphysikalischen
-    # Zweig" war NICHT ein zu kleiner Approach, sondern ein verkehrt herum
-    # initialisierter Kaltstart in Models.AC_Pinch_Point.initial_guess()
-    # (siehe Modul-Docstring "Kalibrierungsstand", inzwischen dort behoben).
-    # Diese vier Werte dürfen also normale, realistische Approach-Werte sein.
     dT_approach_des_C: float = 4.0 # 18.0
     dT_approach_abs_C: float = 3.0  # 7.0
     dT_approach_cond_C: float = 3.0 # 7.0
-    # Ausnahme: dT_approach_evap_C bestimmt T17 = T18_spec_C +
-    # dT_approach_evap_C, und Models.AC_Pinch_Point.initial_guess() schätzt
-    # daraus T10 ~= T17 - 8 K als Kaltstart-Wert -- bei T17 < ca. 9 °C
-    # verletzt schon dieser Schätzwert die harte T10 >= 1°C-Modellgrenze
-    # (siehe dT_min_evap oben) und der Kaltstart scheitert unabhängig vom
-    # x4/x1-Fix. Bei niedrigem T18_spec_C deshalb nicht zu klein wählen
-    # (>= 5.0 empfohlen).
-    dT_approach_evap_C: float = 4.0 # 6.0
+    dT_approach_evap_C: float = 4.0 # 6.0 Wenn zu klein, kann T10 < 0 °C werden (harte Modellgrenze Verdampfer)
 
     absorber_condenser_routing_mode: str = "parallel"
     cp_w_kJkgK: float = 4.18
     desorber_vapor_superheat_K: float = 0.0
 
     # -------------------------------------------------------------------
-    # Such-/Solver-Parameter -- i.d.R. NICHT anfassen
+    # Such-/Solver-Parameter 
     # -------------------------------------------------------------------
-    # Alle Schrittweiten sind bewusst klein gehalten: das Einzugsgebiet
-    # eines Warmstarts ist empirisch oft nur ~2-4 K breit (siehe
-    # Modul-Docstring); ein gröberes Raster überspringt echte, aber schmale
-    # Lösungsfenster.
-    # Reiner Notfall-Fallback (nur falls die Dühring-Schätzung fehlschlägt,
-    # siehe _duehring_initial_guess_C). Die tatsächlich nötige Spanne T11 -
-    # T_rueck liegt empirisch eher bei 40-60 K als bei den ursprünglich
-    # angenommenen ~10-20 K -- ein zu kleiner Wert hier lässt schon die
-    # Anker-Suche für den allerersten Punkt ins Leere laufen.
     T11_search_margin_C: float = 40.0   # Startabstand oberhalb T_rueck (nur 1. Punkt, falls kein Dühring-Schätzwert)
     T11_step_C: float = 2.0            # Expansionsschritt für die Fenstersuche
     T11_bisect_tol_C: float = 0.2      # Abbruchbreite der Bisektion
@@ -213,58 +168,25 @@ class FeasibilitySweepConfig:
     anchor_search_span_C: float = 60.0
     anchor_search_step_C: float = 1.0
 
-    # Gelockerte Solver-Toleranzen für die Probe-Solves (Anker-Suche,
-    # Expansion, Bisektion). Mit den strengen AKMInputs-Defaults
-    # (solver_tol=1e-9, max_nfev=500) kann jeder fehlschlagende Versuch viele
-    # Iterationen brauchen -- bei ~100 Versuchen/Punkt summiert sich das
-    # deutlich. Analog zum fast=True/False-Muster in
-    # AC_design_point_optimizer.py: schnell/locker suchen, an der
-    # gefundenen Fenstergrenze danach streng nachrechnen (siehe
-    # _refine_boundary).
     probe_solver_tol: float = 1.0e-6
     probe_max_nfev: int = 300
 
-
 # ---------------------------------------------------------------------------
-# Such-Raster für den Sweep -- HIER ANPASSEN
+# Such-Raster für den Sweep
 # ---------------------------------------------------------------------------
-# Rückkühltemperaturen, die untersucht werden sollen. Die Homotopie startet
-# beim ERSTEN Wert (T_RUECK_START_C) kalt und wandert von dort SCHRITT FÜR
-# SCHRITT bis T_RUECK_END_C -- deshalb sollte T_RUECK_START_C der numerisch
-# unproblematischste Startwert sein.
-#
-# Hier bewusst AUFSTEIGEND (niedrige zu hohe Rückkühltemperatur), nicht
-# absteigend: die nötige Generatoreintrittstemperatur T11 wächst sehr steil
-# mit T_rueck (Dühring-Schätzung z.B. ~42 °C bei 15 °C Rückkühlung gegenüber
-# ~97 °C bei 40 °C) -- am unteren Ende ist T11 also deutlich kleiner und
-# damit numerisch näher an vernünftigen Kaltstart-Werten (siehe
-# T11_search_margin_C). Das eigentliche Kristallisationsrisiko liegt zwar
-# bei NIEDRIGEN Rückkühltemperaturen ("kaltes Rückkühlwasser im Winter"),
-# das ist aber eine reale Machbarkeitsgrenze (die die Suche korrekt als
-# "nicht lösbar" meldet), kein Grund für einen schwierigeren Suchstart.
 T_RUECK_START_C = 15.0   # numerisch unproblematischer Startwert [°C]
-T_RUECK_END_C = 35.0     # höchste GEWÜNSCHTE Rückkühltemperatur [°C] (evtl. nicht erreichbar, s.o.)
+T_RUECK_END_C = 35.0     # höchste GEWÜNSCHTE Rückkühltemperatur [°C] 
 T_RUECK_STEP_C = 2.5     # Rasterabstand [K]
 
 plot_name = "AC_feasibility_sweep_ex_8_5_5_5"
 
-# Zusatzauswertungen aus DEMSELBEN Sweep, ohne ihn erneut zu rechnen (siehe
-# __main__ unten) -- jeweils per ENABLE_*-Schalter einzeln abschaltbar. Die
-# zugrundeliegenden Skripte (AC_duehring_multi_process_plot.py /
-# AC_qt_multi_process_plot.py) bleiben auch eigenständig lauffähig.
 ENABLE_DUEHRING_MULTI_PLOT = True
 duehring_plot_name = "AC_duehring_multi_process_ex_8_5_5_5"
 
 ENABLE_QT_MULTI_PDF = True
 qt_pdf_name = "AC_qt_multi_process_ex_8_5_5_5"
 
-# Wie viele der untersuchten Rückkühltemperaturen in den beiden
-# Zusatzauswertungen eingezeichnet werden (2 = jede zweite) -- bei zu vielen
-# überlagerten Prozessen wird das Dühring-Diagramm unleserlich. Beim
-# 9-Punkte-Standardraster oben (15-35°C, Schritt 2.5) ergibt every_nth=2
-# genau 5 eingezeichnete Betriebspunkte.
 MULTI_PLOT_EVERY_NTH = 2
-
 
 @dataclass(frozen=True)
 class FeasibilityPoint:
