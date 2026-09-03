@@ -55,7 +55,7 @@ Betriebspunkte lohnt sich der volle UA-Optimierer (AHT_design_point_optimizer.py
 
 Aufruf als Skript
 -----------------
-    python Design_Point_optimization/AHT_feasibility_sweep.py
+    python Design_Point/AHT_feasibility_sweep.py
 """
 
 from __future__ import annotations
@@ -468,7 +468,7 @@ def _duehring_initial_guess_C(
         from AHT_duehring_screening import estimate_max_gtl
     except ImportError:
         try:
-            from Design_Point_optimization.AHT_duehring_screening import estimate_max_gtl
+            from Design_Point.AHT_duehring_screening import estimate_max_gtl
         except ImportError:
             return None
 
@@ -790,7 +790,7 @@ def plot_feasibility_sweep(
     points: Sequence[FeasibilityPoint],
     *,
     duehring_reference: Optional[Sequence] = None,
-    save_path: Optional[str] = f"Design_Point_optimization/Plots/{plot_name}.png",
+    save_path: Optional[str] = f"Design_Point/Plots/{plot_name}.png",
     show: bool = True,
 ):
     """Plottet das feasible GTL-Fenster vs. Abwärmetemperatur; optional
@@ -880,24 +880,24 @@ if __name__ == "__main__":
     # Skripte selbst weiterhin eigenständig importierbar/ausführbar bleiben.
     if ENABLE_DUEHRING_MULTI_PLOT:
         try:
-            from Design_Point_optimization.Visualization_Plots.AHT_duehring_multi_process_plot import select_and_plot_duehring
+            from Design_Point.Visualization_Scripts.AHT_duehring_multi_process_plot import select_and_plot_duehring
         except ImportError:
-            from Design_Point_optimization.Visualization_Plots.AHT_duehring_multi_process_plot import (
+            from Design_Point.Visualization_Scripts.AHT_duehring_multi_process_plot import (
                 select_and_plot_duehring,
             )
         select_and_plot_duehring(
             points, every_nth=MULTI_PLOT_EVERY_NTH,
-            save_path=f"Design_Point_optimization/Plots/{duehring_plot_name}.png",
+            save_path=f"Design_Point/Plots/{duehring_plot_name}.png",
         )
 
     if ENABLE_QT_MULTI_PDF:
         try:
-            from Design_Point_optimization.Visualization_Plots.AHT_qt_multi_process_plot import select_and_plot_qt_pdf
+            from Design_Point.Visualization_Scripts.AHT_qt_multi_process_plot import select_and_plot_qt_pdf
         except ImportError:
-            from Design_Point_optimization.Visualization_Plots.AHT_qt_multi_process_plot import (
+            from Design_Point.Visualization_Scripts.AHT_qt_multi_process_plot import (
                 select_and_plot_qt_pdf,
             )
         select_and_plot_qt_pdf(
             points, every_nth=MULTI_PLOT_EVERY_NTH,
-            save_path=f"Design_Point_optimization/Plots/{qt_pdf_name}.pdf",
+            save_path=f"Design_Point/Plots/{qt_pdf_name}.pdf",
         )

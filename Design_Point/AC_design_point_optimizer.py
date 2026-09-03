@@ -152,7 +152,7 @@ class DesignPointConfig:
     
     # Konvergenzplot (Stufe 1)
     make_convergence_plot: bool = True
-    convergence_plot_path: str = "Design_Point_optimization/Plots/AC_stage1_convergence.png"
+    convergence_plot_path: str = "Design_Point/Plots/AC_stage1_convergence.png"
 
 
 @dataclass

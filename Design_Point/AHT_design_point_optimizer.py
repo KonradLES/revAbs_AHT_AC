@@ -124,11 +124,19 @@ class DesignPointConfig:
     de_patience: Optional[int] = 25
     de_min_improvement: float = 0.01  # kW/K
 
-    penalty_base: float = 200.0
+    # MUSS deutlich über jedem plausiblen echten Sum(UA)-Wert liegen --
+    # sonst kann ein infeasibler Punkt mit winzigem Restfehler (Strafkosten
+    # ~penalty_base, da der residual-Anteil dann fast 0 ist) GÜNSTIGER
+    # aussehen als jedes echte, feasible Design, und DE "optimiert" dann in
+    # Richtung eines Punktes, der nur eine Plausibilitätsprüfung (nicht die
+    # Konvergenz) verletzt (siehe Chat: DE-Ergebnis war zweimal exakt
+    # Sum(UA)=alter_penalty_base=200 -- kein Zufall, sondern genau dieser
+    # Effekt).
+    penalty_base: float = 5000.0
     penalty_residual_weight: float = 20.0
 
     make_convergence_plot: bool = True
-    convergence_plot_path: str = "Design_Point_optimization/Plots/AHT_stage1_convergence_AHT.png"
+    convergence_plot_path: str = "Design_Point/Plots/AHT_stage1_convergence_AHT.png"
 
     # Optionaler manueller Startvektor (interne Modell-Einheiten, K/-, Reihenfolge
     # wie primary_variables) als Fallback für den ALLERERSTEN Optimierer-Aufruf,
@@ -144,13 +152,47 @@ class DesignPointConfig:
     # die Optimierung an der oberen Grenze "klebt" (siehe Diagnose-Hinweis am
     # Ende von optimize_design_point) -- das zeigt einen zu engen Suchraum für
     # DIESEN Betriebspunkt an, nicht zwingend ein Warmstart-Problem.
-    # Beispiel: dT_upper={"cond": 50.0, "evap": 50.0}
-    dT_upper: Optional[Dict[str, float]] = None
+    #
+    # HIER bewusst ASYMMETRISCH gesetzt (nicht ein einheitlicher Cap für alle
+    # fünf!): eine frühere Untersuchung (siehe Chat) hat gemessen, wie stark
+    # jeder einzelne Pinch den erreichbaren GTL kostet, ausgehend von einer
+    # 3K-Basis (T_waste=70°C, Approach 4/4/3K):
+    #   dT_min_shex: -0.25 K GTL pro +2 K Pinch  (~0.13 K/K -- kaum Einfluss)
+    #   dT_min_des:  -2.63 K GTL pro +2 K Pinch  (~1.31 K/K)
+    #   dT_min_cond: -2.50 K GTL pro +2 K Pinch  (~1.25 K/K)
+    #   dT_min_evap: -2.38 K GTL pro +2 K Pinch  (~1.19 K/K)
+    #   dT_min_abs:  -2.00 K GTL pro +2 K Pinch  (~1.00 K/K)
+    # SHEX kostet also kaum GTL (ein weiter SHEX-Pinch ist meist sogar
+    # GÜNSTIG fürs Optimierungsziel Sum(UA): kleinere SHEX-Fläche, kaum
+    # GTL-Verlust) -- deshalb hier NICHT eingeschränkt (bleibt bei
+    # dT_floor+dT_search_range). Die anderen vier teilen sich dagegen
+    # effektiv ein gemeinsames "GTL-Budget": bei diesem Betriebspunkt
+    # (T12_spec_C=67°C, T15_C=57°C) sind das ca. 10 K. Die Caps unten sind
+    # `floor + budget/Sensitivität`, also die Pinch-Erhöhung, bei der DIESER
+    # Wärmeübertrager ALLEIN das gesamte Budget aufbrauchen würde (die
+    # anderen drei müssten dann nahe dem Floor bleiben) -- ein grosszügiger,
+    # aber nicht mehr sinnlos weiter Rahmen. Diese Sensitivitäten wurden bei
+    # EINEM anderen Betriebspunkt gemessen; die Grössenordnung/Reihenfolge
+    # sollte übertragbar sein, die genauen Zahlen sind ein Startwert, keine
+    # exakte Herleitung für DIESEN Betriebspunkt.
+    dT_upper: Optional[Dict[str, float]] = field(
+        default_factory=lambda: {
+            "des": 11.0, "cond": 11.0, "evap": 11.0, "abs": 13.0,
+        }
+    )
 
     # Schneller Feasibility-Test vor der vollen Optimierung (siehe
     # quick_feasibility_probe) -- kostet nur Sekunden bis wenige Minuten und
     # hätte den 19h-Fehlschlag früh erkennbar gemacht.
     run_feasibility_probe: bool = True
+
+    # Stufe 1b (Nelder-Mead-Politur) für schnelle Test-Läufe abschaltbar.
+    # Kann bei fast durchgehend infeasiblem DE-Ergebnis (z.B. bei sehr
+    # kleinem de_popsize/de_maxiter zum Testen) sehr lange brauchen, ohne
+    # etwas zu verbessern -- NM hat kein Early-Stopping und läuft dann bis
+    # maxiter=500 durch reines Herumirren im Penalty-Bereich (siehe Chat:
+    # 104 Minuten NM bei einem Testlauf mit nur 3 feasiblen Punkten).
+    run_local_polish: bool = True
 
     # Stufe 2: Teillast-Verifikation an/aus. Wenn False, wird verify_part_load()
     # gar nicht erst aufgerufen (spart die paar Sekunden, hauptsächlich nützlich
@@ -352,9 +394,29 @@ def design_point_objective(
 
     t0 = time.perf_counter()
     result = solve_awt(inputs, x0=x0)
+    feasible = _is_feasible(result)
+
+    # Rückfall auf einen frischen, generischen Startvektor, wenn der
+    # gecachte Warmstart scheitert. Der Cache hält nur EINEN Vektor -- den
+    # vom letzten ERFOLGREICHEN Theta. DE springt zwischen Generationen aber
+    # oft weit im 5D-Raum herum (kein kontinuierlicher Pfad), und das
+    # Solver-Einzugsgebiet ist empirisch nur ~2-4 K breit (siehe
+    # AHT_feasibility_sweep.py). Ohne Rückfall hängt ein schlecht
+    # warmgestarteter Versuch oft bis zum nfev-Limit fest, statt sauber zu
+    # konvergieren ODER sauber zu scheitern -- das war die Hauptursache für
+    # die 72% nfev-Limit-Treffer und die 16h-Laufzeit im 500kW-Testlauf.
+    # awt_initial_guess() kennt das aktuelle Theta nicht, ist aber oft ein
+    # deutlich besserer Startpunkt für ein NEUES Theta als ein Warmstart von
+    # einem ganz anderen Theta.
+    if not feasible:
+        x0_fresh = _clip_to_bounds(awt_initial_guess(inputs), inputs)
+        result_fresh = solve_awt(inputs, x0=x0_fresh)
+        if _is_feasible(result_fresh):
+            result = result_fresh
+            feasible = True
+
     dt = time.perf_counter() - t0
 
-    feasible = _is_feasible(result)
     hit_cap = (
         not result.solve_info.success
         and result.solve_info.nfev >= config.opt_max_nfev
@@ -462,26 +524,36 @@ def optimize_design_point(
             f"  DE-Ergebnis: theta = {de_result.x}, Sum(UA) = {de_result.fun:.4f} "
             f"| Dauer: {t_de/60:.1f} min"
         )
-        print("Stufe 1b: lokale Politur (Nelder-Mead) ...")
 
-    t0 = time.perf_counter()
-    nm_result = minimize(
-        design_point_objective,
-        x0=de_result.x,
-        args=(config, cache, stats),
-        method="Nelder-Mead",
-        bounds=bounds,
-        options={"xatol": 1e-3, "fatol": 1e-4, "adaptive": True, "maxiter": 500},
-    )
-    t_nm = time.perf_counter() - t0
+    if config.run_local_polish:
+        if verbose:
+            print("Stufe 1b: lokale Politur (Nelder-Mead) ...")
 
-    theta_opt = nm_result.x if nm_result.fun <= de_result.fun else de_result.x
+        t0 = time.perf_counter()
+        nm_result = minimize(
+            design_point_objective,
+            x0=de_result.x,
+            args=(config, cache, stats),
+            method="Nelder-Mead",
+            bounds=bounds,
+            options={"xatol": 1e-3, "fatol": 1e-4, "adaptive": True, "maxiter": 500},
+        )
+        t_nm = time.perf_counter() - t0
+
+        theta_opt = nm_result.x if nm_result.fun <= de_result.fun else de_result.x
+
+        if verbose:
+            print(
+                f"  Finales theta = {theta_opt}, "
+                f"Sum(UA) = {min(nm_result.fun, de_result.fun):.4f} | Dauer: {t_nm:.1f} s"
+            )
+    else:
+        t_nm = 0.0
+        theta_opt = de_result.x
+        if verbose:
+            print("Stufe 1b: lokale Politur (Nelder-Mead) übersprungen (config.run_local_polish=False).")
 
     if verbose:
-        print(
-            f"  Finales theta = {theta_opt}, "
-            f"Sum(UA) = {min(nm_result.fun, de_result.fun):.4f} | Dauer: {t_nm:.1f} s"
-        )
         print("Finaler Präzisions-Solve (strenge Toleranzen) ...")
 
     t0 = time.perf_counter()
@@ -564,6 +636,23 @@ def print_design_point_summary(theta: np.ndarray, result) -> None:
     for key, val in zip(THETA_ORDER, theta):
         print(f"  dT_min_{key:5s}: {val:8.4f} K")
     print()
+
+    if not _is_feasible(result) or not result.UA_conversion:
+        # solve_awt() liefert bei final_point_evaluable=False bewusst ein
+        # LEERES UA_conversion (siehe Models.AHT_Pinch_Point) -- UA-Werte aus
+        # einem ungültigen Zustand wären bedeutungslos. theta_opt oben ist
+        # dann das beste GEFUNDENE (aber nicht valide) theta, kein
+        # Auslegungsergebnis.
+        print(
+            "KEIN valides Ergebnis (result.solve_info.final_point_evaluable=False "
+            "oder ein Plausibilitätscheck ist verletzt) -- UA-Werte, Massenströme "
+            "und KPIs können nicht sinnvoll ausgegeben werden. theta oben ist "
+            f"lediglich das beste GEFUNDENE, nicht valide theta "
+            f"(Solver-Nachricht: '{result.solve_info.message}')."
+        )
+        print("=" * 90)
+        return
+
     print("UA-Werte [kW/K]")
     for key in ["UA_shex", "UA_des", "UA_cond", "UA_evap", "UA_abs"]:
         print(f"  {key:10s}: {result.UA_conversion[key]:10.4f}")
@@ -778,6 +867,14 @@ def verify_part_load(
             f"({_ua_import_error!r}). Stufe 2 wird übersprungen.\n"
             "  -> Falls das Modul anders heißt/liegt: Pfad/Klassennamen im Skript anpassen,\n"
             "     oder mir das Main-Skript/den Quelltext schicken."
+        )
+        return
+
+    if not _is_feasible(design_result) or not design_result.UA_conversion:
+        print(
+            "Stufe 2 übersprungen: der Designpunkt aus Stufe 1 ist nicht valide "
+            "(kein UA_conversion vorhanden) -- siehe Warnung von "
+            "print_design_point_summary()."
         )
         return
 

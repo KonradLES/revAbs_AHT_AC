@@ -524,6 +524,15 @@ def water_rho_kgm3_PQ(P_pa: float, Q: float) -> float:
 # ---------------------------------------------------------------------------
 # Allgemeine Hilfsfunktionen
 # ---------------------------------------------------------------------------
+def smooth_min(a: float, b: float, k: float = 50.0) -> float:
+    """Glatte Approximation von min(a, b), numerisch stabil.
+
+    Für k -> unendlich konvergiert smooth_min gegen min(a, b) exakt.
+    Bleibt überall stetig differenzierbar, auch bei a == b.
+    """
+    lo = min(a, b)
+    diff = abs(a - b)
+    return lo - math.log1p(math.exp(-k * diff)) / k
 
 def lmtd(delta_T_1: float, delta_T_2: float) -> float:
     """Strenge LMTD: wirft ModelEvaluationError für ΔT ≤ 0."""
@@ -853,8 +862,8 @@ def initial_guess(inputs: AKMInputs) -> np.ndarray:
         [
             T_cond_ref + 15.0,      # T8
             inputs.T_17 - 8.0,      # T10
-            0.22,                   # x4
-            0.243,                  # x1
+            0.243,                   # x4
+            0.22,                  # x1
             T_abs_ref + 12.0,       # T3
             inputs.T_11 - 47.0,     # T5
         ],
@@ -868,9 +877,9 @@ def bounds(inputs: AKMInputs) -> Tuple[np.ndarray, np.ndarray]:
     lower = np.array(
         [
             inputs.T_17 + 1.0,      # T8
-            274.15,                 # T10
-            0.05,                   # x4
-            0.08,                   # x1
+            273.15,                 # T10
+            0.08,                   # x4
+            0.05,                   # x1
             inputs.T_17 + 1.0,      # T3
             inputs.T_17 + 1.0,      # T5
         ],
@@ -880,8 +889,8 @@ def bounds(inputs: AKMInputs) -> Tuple[np.ndarray, np.ndarray]:
         [
             min(inputs.T_11 - 1.0, 420.0),   # T8
             min(inputs.T_17 + 0.5, 500.0),   # T10
-            0.34,                           # x3
-            0.39,                           # x6
+            0.39,                           # x3
+            0.34,                           # x6
             500.0,                          # T2
             500.0,                          # T4
         ],
@@ -1021,7 +1030,7 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
     # Pinch-Residuum SHEX: kleinster Temperaturabstand = dT_min_shex
     dT_shex_hot_end  = T4 - T3   # heiß ein  / kalt aus
     dT_shex_cold_end = T5 - T2   # heiß aus  / kalt ein
-    pinch_shex = min(dT_shex_hot_end, dT_shex_cold_end)
+    pinch_shex = smooth_min(dT_shex_hot_end, dT_shex_cold_end, k=50.0)
 
     lmtd_shex = _counterflow_lmtd_mode(
         strict=strict, hot_in=T4, hot_out=T5, cold_in=T2, cold_out=T3
@@ -1078,7 +1087,7 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
     # Pinch Desorber: min beider Enden
     dT_des_hot_end  = inputs.T_11 - T4          # heiß ein / kalt aus
     dT_des_cold_end = T12  - T7  # heiß aus / kalt ein
-    pinch_des = min(dT_des_hot_end, dT_des_cold_end)
+    pinch_des  = smooth_min(dT_des_hot_end,  dT_des_cold_end,  k=50.0)
     lmtd_des = _counterflow_lmtd_mode(
         strict=strict, hot_in=inputs.T_11, hot_out=T12, cold_in=T7, cold_out=T4
     )
@@ -1091,10 +1100,28 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
         raise ModelEvaluationError(f"Verdampferwärmestrom nicht positiv: Q_evap={Q_evap:.6f} kW.")
     m17, T18 = _resolve_evaporator_external_stream(inputs, Q_evap, strict=strict)
 
-    # Pinch Verdampfer: min beider Enden (Lage hängt vom Betriebspunkt ab)
-    dT_evap_hot_end  = inputs.T_17 - T10   # heiß ein / kalt aus
-    dT_evap_cold_end = T18 - T9   # heiß aus / kalt ein
-    pinch_evap = min(dT_evap_hot_end, dT_evap_cold_end)
+    # Wärmeanteil für die Unterkühlung:
+    h_f_high = water_h_kjkg_PQ(p_high, Q=0.0)
+
+    Q_subcool = m9 * (h_f_high - h9)
+    Q_subcool = max(0.0, min(Q_subcool, Q_evap))
+
+    # Nutzkälte-Rücklauftemperatur am Übergang
+    # Unterkühlung -> Verdampfung
+    T18_sat = T18 + Q_subcool / (
+        m17 * inputs.cp_w_kJkgK
+    )
+
+    # Pinch-Kandidaten
+    dT_evap_in = inputs.T_17 - T10
+    dT_evap_sat = T18_sat - T10
+    dT_evap_out = T18 - T9
+
+    pinch_evap = smooth_min(
+        smooth_min(dT_evap_in, dT_evap_sat, k=50.0),
+        dT_evap_out,
+        k=50.0,
+    )
 
     lmtd_evap = _counterflow_lmtd_mode(
         strict=strict, hot_in=inputs.T_17, hot_out=T18, cold_in=T9, cold_out=T10
@@ -1151,12 +1178,29 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
     # Pinch Absorber: min beider Enden (Lage hängt vom Betriebspunkt ab)
     dT_abs_hot_end  = T6 - T14   # heiß ein / kalt aus
     dT_abs_cold_end = T1    - T13_in   # heiß aus / kalt ein
-    pinch_abs = min(dT_abs_hot_end, dT_abs_cold_end)
+    pinch_abs  = smooth_min(dT_abs_hot_end,  dT_abs_cold_end,  k=50.0)
 
-    # Pinch Kondensator: min beider Enden (Lage hängt vom Betriebspunkt ab)
-    dT_cond_hot_end  = T8 - T16    # heiß ein / kalt aus
-    dT_cond_cold_end = T8 - T15_in   # heiß aus / kalt ein
-    pinch_cond = min(dT_cond_hot_end, dT_cond_cold_end)
+    # Wärmeanteil für die Enthitzung:
+    h_g_high = water_h_kjkg_PQ(p_high, Q=1.0)
+
+    Q_desuperheat = m7 * (h7 - h_g_high)
+    Q_desuperheat = max(0.0, min(Q_desuperheat, Q_cond))
+
+    # kühlwassertemperatur am übergang
+    # Enthitzung -> Kondensation
+    T16_sat = T16 - Q_desuperheat / (
+        m15 * inputs.cp_w_kJkgK
+    )
+
+    # Pinch-Kandidaten
+    dT_cond_in = T7 - T16
+    dT_cond_sat = T8 - T16_sat
+    dT_cond_out = T8 - T15_in
+    pinch_cond = smooth_min(
+        smooth_min(dT_cond_in, dT_cond_sat, k=50.0),
+        dT_cond_out,
+        k=50.0,
+    )
 
     # ------------------------------------------------------------------
     # 13) Residuen des 7x7-Systems
@@ -1218,16 +1262,7 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
         "m13_kg_s": m13,
         "m15_kg_s": m15,
         "m17_kg_s": m17,
-        "deltaT_shex_1_K": T4 - T3,
-        "deltaT_shex_2_K": T5 - T2,
-        "deltaT_des_1_K": inputs.T_11 - T4,
-        "deltaT_des_2_K": T12 - T7,
-        "deltaT_cond_1_K": T8 - T16,
-        "deltaT_cond_2_K": T8 - T15_in,
-        "deltaT_evap_1_K": inputs.T_17 - T10,
-        "deltaT_evap_2_K": T18 - T9,
-        "deltaT_abs_1_K": T6 - T14,
-        "deltaT_abs_2_K": T1 - T13_in,
+        "q_9": q9,
     }
 
     # ------------------------------------------------------------------
@@ -1295,15 +1330,23 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
             "UA_abs": Q_abs / lmtd_abs,
         },
         pinch_temperatures_K = {
-            "pinch_shex_K":     pinch_shex,
-            "pinch_des_K":      pinch_des,
-            "pinch_cond_K":     pinch_cond,
-            "pinch_evap_K":     pinch_evap,
-            "pinch_abs_K":      pinch_abs,
+            "pinch_shex_K": pinch_shex,
+            "pinch_des_K": pinch_des,
+            "pinch_cond_K": pinch_cond,
+            "pinch_evap_K": pinch_evap,
+            "pinch_abs_K": pinch_abs,
+            "dT_shex_hot_end_K": dT_shex_hot_end,
+            "dT_shex_cold_end_K": dT_shex_cold_end,
             "dT_des_hot_end_K": dT_des_hot_end,
-            "dT_des_cold_end_K":dT_des_cold_end,
+            "dT_des_cold_end_K": dT_des_cold_end,
+            "dT_cond_in": dT_cond_in,
+            "dT_cond_sat": dT_cond_sat,
+            "dT_cond_out": dT_cond_out,
+            "dT_evap_in": dT_evap_in,
+            "dT_evap_sat": dT_evap_sat,
+            "dT_evap_out": dT_evap_out,
             "dT_abs_hot_end_K": dT_abs_hot_end,
-            "dT_abs_cold_end_K":dT_abs_cold_end,
+            "dT_abs_cold_end_K": dT_abs_cold_end,
         },
         compositions={
             "x1_LiBr_mol": x1,
@@ -1812,6 +1855,11 @@ def print_summary(result: AWTResult) -> None:
 
     print("LMTD [K]")
     for key, value in result.UA_conversion.items():
+        print(f"  {key:12s}: {value:12.6f}")
+    print()
+
+    print("Pinch Temperatures [K]")
+    for key, value in result.pinch_temperatures_K.items():
         print(f"  {key:12s}: {value:12.6f}")
     print()
 

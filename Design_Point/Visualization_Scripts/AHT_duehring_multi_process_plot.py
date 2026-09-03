@@ -22,7 +22,7 @@ dieses Skripts aus.
 
 Aufruf als eigenständiges Skript
 --------------------------------
-    python Design_Point_optimization/AHT_duehring_multi_process_plot.py
+    python Design_Point/Visualization_Scripts/AHT_duehring_multi_process_plot.py
 """
 
 from __future__ import annotations
@@ -31,14 +31,16 @@ from pathlib import Path
 import sys
 from typing import TYPE_CHECKING, Optional, Sequence
 
-sys.path.append(str(Path(__file__).resolve().parent.parent))
+# Liegt in Design_Point/Visualization_Scripts/ -- drei Ebenen bis zum Repo-Root
+# (Design_Point/Visualization_Scripts -> Design_Point -> Repo-Root).
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
 import numpy as np
 
 from Postprocessing.AHT_Duehring_Plot import plot_duehring_multi_operating_points
 
 if TYPE_CHECKING:
-    from Design_Point_optimization.AHT_feasibility_sweep import FeasibilityPoint
+    from Design_Point.AHT_feasibility_sweep import FeasibilityPoint
 
 # ---------------------------------------------------------------------------
 # Konfiguration -- HIER ANPASSEN
@@ -56,7 +58,7 @@ T_WASTE_STEP_C = 5.0
 # Diagramm: 85, 75, 65, ...).
 PLOT_EVERY_NTH = 2
 
-PLOT_SAVE_PATH = "Design_Point_optimization/Plots/duehring_multi_process.png"
+PLOT_SAVE_PATH = "Design_Point/Plots/duehring_multi_process.png"
 DUEHRING_VARIANT = "mass"  # "mass" oder "mole"
 
 
@@ -106,7 +108,7 @@ def select_and_plot_duehring(
 
 
 if __name__ == "__main__":
-    from Design_Point_optimization.AHT_feasibility_sweep import (
+    from Design_Point.AHT_feasibility_sweep import (
         FeasibilitySweepConfig,
         sweep_relative_lift_window_homotopy,
     )

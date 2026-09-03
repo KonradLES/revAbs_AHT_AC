@@ -1055,7 +1055,7 @@ def plot_duehring_operating_point(
 #
 # Wie plot_duehring_operating_point(), aber für einen Satz von Ergebnissen
 # (z.B. je ein Betriebspunkt pro untersuchter Abwärmetemperatur aus
-# Design_Point_optimization/AHT_feasibility_sweep.py) -- jeder Prozess wird
+# Design_Point/AHT_feasibility_sweep.py) -- jeder Prozess wird
 # als eigenes Sechseck in einer eigenen Farbe eingezeichnet, damit sich die
 # Betriebsbereiche verschiedener Abwärmetemperaturen im selben Dühring-
 # Diagramm vergleichen lassen. Auf die einzelnen Zustands-Textlabels (1*, 3,

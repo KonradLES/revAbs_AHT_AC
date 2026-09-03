@@ -62,7 +62,7 @@ Was hier NICHT abgebildet wird (bewusst, für Geschwindigkeit):
 
 Aufruf als Skript
 -----------------
-    python Design_Point_optimization/AHT_duehring_screening.py
+    python Design_Point/AHT_duehring_screening.py
 """
 
 from __future__ import annotations
@@ -348,7 +348,7 @@ def plot_gtl_vs_waste_heat(
     dT_min_evap: float = 5.0,
     dT_min_cond: float = 5.0,
     dT_min_abs: float = 5.0,
-    save_path: Optional[str] = "Design_Point_optimization/Plots/duehring_screening_GTL_3K.png",
+    save_path: Optional[str] = "Design_Point/Plots/duehring_screening_GTL_3K.png",
     show: bool = True,
 ):
     """Eine Kurve GTL_max vs. Abwärmetemperatur je T17-Wert. Infeasible/
