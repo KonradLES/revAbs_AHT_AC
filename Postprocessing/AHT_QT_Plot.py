@@ -1,12 +1,12 @@
-"""Q-T-Diagramme (Pinch-Analyse) für die AWT-Simulation.
+"""Q-T-Diagramme (Pinch-Analyse) für die AHT-Simulation.
 
 Erzeugt eine 2x3-Rasterdarstellung mit den Temperaturverläufen der fünf
 Wärmeübertrager (SHEX, Desorber, Kondensator, Verdampfer, Absorber) über der
 kumulierten Wärmeleistung Q, sowie einer Betriebspunkt-Infobox.
 
 Alle benötigten Größen (Zustände, Wärmeströme, Pinch-Temperaturen,
-Diagnostik) werden ausschließlich aus dem `AWTResult`-Objekt gelesen, das
-`solve_awt()` liefert. Das Modell selbst wird nicht verändert.
+Diagnostik) werden ausschließlich aus dem `AHTResult`-Objekt gelesen, das
+`solve_aht()` liefert. Das Modell selbst wird nicht verändert.
 
 Sonderfall Kondensator
 -----------------------
@@ -24,7 +24,7 @@ Nutzung im Hauptskript
     from Postprocessing.AHT_QT_Plot import plot_qt_diagrams
 
     if ENABLE_QT_PLOT:
-        plot_qt_diagrams(result, save_path="AWT_QT_Diagramme.png")
+        plot_qt_diagrams(result, save_path="AHT_QT_Diagramme.png")
 """
 
 from __future__ import annotations
@@ -33,14 +33,14 @@ from typing import List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 
-from Models.AHT_Pinch_Point import AWTResult, kelvin_to_celsius, water_h_kjkg_PQ
+from Models.AHT_Pinch_Point import AHTResult, kelvin_to_celsius, water_h_kjkg_PQ
 
 
 # ---------------------------------------------------------------------------
 # Hilfsfunktionen
 # ---------------------------------------------------------------------------
 
-def _condenser_hot_side_points(result: AWTResult) -> Tuple[List[float], List[float]]:
+def _condenser_hot_side_points(result: AHTResult) -> Tuple[List[float], List[float]]:
     """Liefert (Q_kumuliert, T) für die heiße (Kältemittel-)Seite des Kondensators.
 
     Bildet den Knick durch Enthitzung (überhitzter/durch Siedepunktserhöhung
@@ -71,7 +71,7 @@ def _condenser_hot_side_points(result: AWTResult) -> Tuple[List[float], List[flo
     return [0.0, Q_desuperheat, Q_total], [T7_C, T8_C, T8_C]
 
 def _evaporator_cold_side_points(
-    result: AWTResult,
+    result: AHTResult,
 ) -> Tuple[List[float], List[float]]:
     """
     Liefert (Q_kumuliert, T) für die kalte
@@ -181,7 +181,7 @@ def _hx_panel(
             "tab:blue",
         )
 
-def _info_panel(ax, result: AWTResult) -> None:
+def _info_panel(ax, result: AHTResult) -> None:
     ax.axis("off")
     inputs = result.inputs
     kpis = result.kpis
@@ -227,18 +227,18 @@ def _info_panel(ax, result: AWTResult) -> None:
 # ---------------------------------------------------------------------------
 
 def plot_qt_diagrams(
-    result: AWTResult,
+    result: AHTResult,
     *,
     show: bool = True,
     save_path: Optional[str] = None,
     dpi: int = 150,
 ):
-    """Erzeugt die Q-T-Diagramme (Pinch-Analyse) für einen gelösten AWT-Betriebspunkt.
+    """Erzeugt die Q-T-Diagramme (Pinch-Analyse) für einen gelösten AHT-Betriebspunkt.
 
     Parameters
     ----------
     result:
-        Ergebnisobjekt von `solve_awt()`. Muss physikalisch auswertbar sein
+        Ergebnisobjekt von `solve_aht()`. Muss physikalisch auswertbar sein
         (`result.solve_info.final_point_evaluable`).
     show:
         Öffnet ein interaktives Fenster (`plt.show()`), falls True.
@@ -262,7 +262,7 @@ def plot_qt_diagrams(
     pinch = result.pinch_temperatures_K
 
     fig, axes = plt.subplots(2, 3, figsize=(15, 9))
-    fig.suptitle("AWT – Q-T-Diagramme (Pinch-Analyse)", fontsize=14, fontweight="bold")
+    fig.suptitle("AHT – Q-T-Diagramme (Pinch-Analyse)", fontsize=14, fontweight="bold")
 
     # Lösungswärmeübertrager (SHEX)
     _hx_panel(

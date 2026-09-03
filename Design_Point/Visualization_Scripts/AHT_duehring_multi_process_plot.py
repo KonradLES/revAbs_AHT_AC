@@ -1,9 +1,9 @@
-"""Mehrere AWT-Betriebspunkte (je Abwärmetemperatur) in einem Dühring-Diagramm.
+"""Mehrere AHT-Betriebspunkte (je Abwärmetemperatur) in einem Dühring-Diagramm.
 
 Nutzt denselben Sweep wie AHT_feasibility_sweep.py (Warmstart-verkettete
 Homotopie über T_waste, siehe dort für die vollständige Erklärung), zeichnet
 aber statt einer Tabelle/eines GTL-Fenster-Plots für eine Auswahl der
-untersuchten Abwärmetemperaturen den zugehörigen AWT-Kreisprozess -- jeweils
+untersuchten Abwärmetemperaturen den zugehörigen AHT-Kreisprozess -- jeweils
 am oberen Fensterrand (T12_max, siehe Modul-Docstring von
 AHT_feasibility_sweep.py: "welche Nutztemperatur ist bei dieser
 Abwärmetemperatur maximal erreichbar") -- als eigenes Sechseck in einer
@@ -69,7 +69,7 @@ def select_and_plot_duehring(
     variant: str = DUEHRING_VARIANT,
     save_path: Optional[str] = PLOT_SAVE_PATH,
     show: bool = False,
-    title: str = "AWT – Dühring-Diagramm: Betriebspunkte bei T12_max je Abwärmetemperatur",
+    title: str = "AHT – Dühring-Diagramm: Betriebspunkte bei T12_max je Abwärmetemperatur",
 ):
     """Wählt aus einer bereits berechneten Sweep-Punkteliste (siehe
     AHT_feasibility_sweep.sweep_relative_lift_window_homotopy()) jeden
@@ -77,7 +77,7 @@ def select_and_plot_duehring(
     T12_max als eigenes Sechseck in ein gemeinsames Dühring-Diagramm.
 
     Rechnet NICHTS neu -- nutzt die in `points[i].result` bereits enthaltenen
-    (streng nachgerechneten) AWTResult-Objekte. Gibt None zurück (und
+    (streng nachgerechneten) AHTResult-Objekte. Gibt None zurück (und
     überspringt mit Hinweis), wenn kein feasibler Punkt vorhanden ist.
     """
     feasible_points = [p for p in points if p.feasible and p.result is not None]

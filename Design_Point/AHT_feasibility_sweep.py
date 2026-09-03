@@ -1,4 +1,4 @@
-"""Schnelle Pinch-Feasibility-Karte für den AWT -- NUR Simulation, KEINE Optimierung.
+"""Schnelle Pinch-Feasibility-Karte für den AHT -- NUR Simulation, KEINE Optimierung.
 
 Unterschied zu AHT_design_point_optimizer.py
 ---------------------------------------------
@@ -11,7 +11,7 @@ Dieses Skript hält dT_min FEST auf eure real angenommenen/gebauten
 Pinch-Werte (kein Optimierungsziel!) und sucht für ein Raster von
 Abwärmetemperaturen (T13 = T15, parallele Verschaltung) das GESAMTE
 feasible T12-Fenster [T12_min, T12_max] -- nicht nur das Maximum. Jeder
-Punkt kostet nur eine Handvoll solve_awt()-Aufrufe statt einer vollen
+Punkt kostet nur eine Handvoll solve_aht()-Aufrufe statt einer vollen
 DE-Suche.
 
 Kernkonzept: Mindest-Hub statt fixer Zieltemperatur
@@ -71,11 +71,11 @@ from typing import List, Optional, Sequence, Tuple
 import numpy as np
 
 from Models.AHT_Pinch_Point import (
-    AWTInputs,
-    AWTResult,
+    AHTInputs,
+    AHTResult,
     PRIMARY_VARIABLE_NAMES,
     initial_guess,
-    solve_awt,
+    solve_aht,
 )
 
 RESIDUAL_TOL = 1.0e-6
@@ -148,7 +148,7 @@ class FeasibilitySweepConfig:
     anchor_search_step_C: float = 1.0
 
     # Gelockerte Solver-Toleranzen für die Probe-Solves (Anker-Suche,
-    # Expansion, Bisektion). Mit den strengen AWTInputs-Defaults
+    # Expansion, Bisektion). Mit den strengen AHTInputs-Defaults
     # (solver_tol=1e-9, max_nfev=5000) kann jeder fehlschlagende Versuch
     # bis zu 5000 Iterationen brauchen -- bei ~100 Versuchen/Punkt summiert
     # sich das zu Stunden. Analog zum fast=True/False-Muster in
@@ -200,7 +200,7 @@ class FeasibilityPoint:
     GTL_max_K: float
     feasible: bool
     message: str
-    result: Optional[AWTResult] = None
+    result: Optional[AHTResult] = None
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +210,7 @@ class FeasibilityPoint:
 def _build_inputs(
     T_waste_C: float, T12_spec_C: float, config: FeasibilitySweepConfig, *,
     fast: bool = True, T11_C: Optional[float] = None,
-) -> AWTInputs:
+) -> AHTInputs:
     """T11_C überschreibt config.T_11_C für einen einzelnen Aufruf -- genutzt
     von den relative-lift-Funktionen, wo T11 pro Punkt aus T_waste_C
     abgeleitet wird statt fix zu sein."""
@@ -241,10 +241,10 @@ def _build_inputs(
     if fast:
         kwargs["solver_tol"] = config.probe_solver_tol
         kwargs["max_nfev"] = config.probe_max_nfev
-    return AWTInputs(**kwargs)
+    return AHTInputs(**kwargs)
 
 
-def _is_valid_solution(result: AWTResult) -> bool:
+def _is_valid_solution(result: AHTResult) -> bool:
     info = result.solve_info
     if not info.success or not info.final_point_evaluable:
         return False
@@ -255,7 +255,7 @@ def _is_valid_solution(result: AWTResult) -> bool:
     return True
 
 
-def _x0_from_result(result: AWTResult) -> np.ndarray:
+def _x0_from_result(result: AHTResult) -> np.ndarray:
     return np.array(
         [result.primary_variables[name] for name in PRIMARY_VARIABLE_NAMES], dtype=float
     )
@@ -264,13 +264,13 @@ def _x0_from_result(result: AWTResult) -> np.ndarray:
 def _try_solve(
     T_waste_C: float, T12_spec_C: float, x0: np.ndarray, config: FeasibilitySweepConfig,
     *, fast: bool = True, T11_C: Optional[float] = None,
-) -> Tuple[bool, Optional[AWTResult]]:
+) -> Tuple[bool, Optional[AHTResult]]:
     try:
         inputs = _build_inputs(T_waste_C, T12_spec_C, config, fast=fast, T11_C=T11_C)
     except ValueError:
         return False, None
     try:
-        result = solve_awt(inputs, x0=x0)
+        result = solve_aht(inputs, x0=x0)
     except Exception:
         return False, None
     if not _is_valid_solution(result):
@@ -281,7 +281,7 @@ def _try_solve(
 def _solve_raw(
     T_waste_C: float, T12_spec_C: float, x0: np.ndarray, config: FeasibilitySweepConfig,
     *, fast: bool = True, T11_C: Optional[float] = None,
-) -> Optional[AWTResult]:
+) -> Optional[AHTResult]:
     """Wie _try_solve(), gibt aber IMMER das Result zurück (auch wenn nicht
     'valid' nach _is_valid_solution) -- nur None bei echtem Fehler
     (ValueError/Exception). Für Warmstart-Ketten: der Lösungsvektor eines
@@ -293,7 +293,7 @@ def _solve_raw(
     except ValueError:
         return None
     try:
-        return solve_awt(inputs, x0=x0)
+        return solve_aht(inputs, x0=x0)
     except Exception:
         return None
 
@@ -304,7 +304,7 @@ def _solve_raw(
 
 def _locate_anchor(
     T_waste_C: float, config: FeasibilitySweepConfig, x0_seed: np.ndarray, guess_C: float,
-) -> Tuple[Optional[float], Optional[AWTResult]]:
+) -> Tuple[Optional[float], Optional[AHTResult]]:
     """Sucht EINEN feasiblen T12-Wert, als Kontinuitäts-WALK in kleinen
     Schritten von guess_C aus (beide Richtungen) -- NICHT als unabhängige
     Sprünge mit demselben Startvektor.
@@ -400,8 +400,8 @@ def _expand_and_bisect(
 
 def _refine_boundary(
     T_waste_C: float, T12_C: float, x0_seed: np.ndarray, config: FeasibilitySweepConfig,
-) -> Optional[AWTResult]:
-    """Ein abschliessender Solve mit strengen (AWTInputs-Default-)Toleranzen
+) -> Optional[AHTResult]:
+    """Ein abschliessender Solve mit strengen (AHTInputs-Default-)Toleranzen
     an einer per Fast-Probing gefundenen Fenstergrenze, für belastbare
     KPIs/UA-Werte im zurückgegebenen Result. Fällt bei Fehlschlag auf den
     gelockerten Solve zurück (Toleranzunterschied ist bei

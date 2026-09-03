@@ -1,4 +1,4 @@
-"""Q-T-Diagramme (Pinch-Analyse) für die AKM-Simulation.
+"""Q-T-Diagramme (Pinch-Analyse) für die AC-Simulation.
 
 Analogon zu Postprocessing/AHT_QT_Plot.py, aber für die
 Absorptionskältemaschine. Erzeugt eine 2x3-Rasterdarstellung mit den
@@ -7,8 +7,8 @@ Verdampfer, Absorber) über der kumulierten Wärmeleistung Q, sowie einer
 Betriebspunkt-Infobox.
 
 Alle benötigten Größen (Zustände, Wärmeströme, Pinch-Temperaturen,
-Diagnostik) werden ausschließlich aus dem `AWTResult`-Objekt gelesen, das
-Models.AC_Pinch_Point.solve_awt() liefert. Das Modell selbst wird nicht
+Diagnostik) werden ausschließlich aus dem `AHTResult`-Objekt gelesen, das
+Models.AC_Pinch_Point.solve_aht() liefert. Das Modell selbst wird nicht
 verändert.
 
 Zuordnung Q-Achsen-Position <-> Zustand (Gegenstrom-Wärmeübertrager)
@@ -25,13 +25,13 @@ hier 1:1 für die Q-Achsen-Zuordnung übernommen werden:
 
 Sonderfall Kondensator
 -----------------------
-Wie beim AWT verlässt der Kältemitteldampf (Zustand 7) den Desorber
+Wie beim AHT verlässt der Kältemitteldampf (Zustand 7) den Desorber
 überhitzt gegenüber der reinen Wassersättigungstemperatur bei p_high
 (Zustand 8) -- Siedepunktserhöhung durch die LiBr-Konzentration der
 Restlösung, aus der er entstanden ist. Im Kondensator wird er daher
 zunächst enthitzt (kleiner Q-Anteil) und anschließend isotherm bei T8
 kondensiert. Der Verdampfer braucht dagegen KEINEN analogen Knick: Zustand 9
-(nach der Drossel) liegt bei der AKM numerisch praktisch exakt auf der
+(nach der Drossel) liegt bei der AC numerisch praktisch exakt auf der
 Sättigungstemperatur von Zustand 10 (beide bei p_low) -- die Drossel liefert
 hier direkt ein Zweiphasengemisch ohne nennenswerte Unterkühlung.
 
@@ -40,7 +40,7 @@ Nutzung im Hauptskript
     from Postprocessing.AC_QT_Plot import plot_qt_diagrams
 
     if ENABLE_QT_PLOT:
-        plot_qt_diagrams(result, save_path="AKM_QT_Diagramme.png")
+        plot_qt_diagrams(result, save_path="AC_QT_Diagramme.png")
 """
 
 from __future__ import annotations
@@ -49,14 +49,14 @@ from typing import List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 
-from Models.AC_Pinch_Point import AWTResult, kelvin_to_celsius, water_h_kjkg_PQ
+from Models.AC_Pinch_Point import AHTResult, kelvin_to_celsius, water_h_kjkg_PQ
 
 
 # ---------------------------------------------------------------------------
 # Hilfsfunktionen
 # ---------------------------------------------------------------------------
 
-def _condenser_hot_side_points(result: AWTResult) -> Tuple[List[float], List[float]]:
+def _condenser_hot_side_points(result: AHTResult) -> Tuple[List[float], List[float]]:
     """Liefert (Q_kumuliert, T) für die heiße (Kältemittel-)Seite des Kondensators.
 
     Bildet den Knick durch Enthitzung (überhitzter, durch Siedepunktserhöhung
@@ -145,7 +145,7 @@ def _hx_panel(
         _annotate_state_points(ax, cold_Q, cold_T, cold_states, "tab:blue")
 
 
-def _info_panel(ax, result: AWTResult) -> None:
+def _info_panel(ax, result: AHTResult) -> None:
     ax.axis("off")
     inputs = result.inputs
     kpis = result.kpis
@@ -191,19 +191,19 @@ def _info_panel(ax, result: AWTResult) -> None:
 # ---------------------------------------------------------------------------
 
 def plot_qt_diagrams(
-    result: AWTResult,
+    result: AHTResult,
     *,
     show: bool = True,
     save_path: Optional[str] = None,
     dpi: int = 150,
 ):
     """Erzeugt die Q-T-Diagramme (Pinch-Analyse) für einen gelösten
-    AKM-Betriebspunkt.
+    AC-Betriebspunkt.
 
     Parameters
     ----------
     result:
-        Ergebnisobjekt von Models.AC_Pinch_Point.solve_awt(). Muss
+        Ergebnisobjekt von Models.AC_Pinch_Point.solve_aht(). Muss
         physikalisch auswertbar sein (`result.solve_info.final_point_evaluable`).
     show:
         Öffnet ein interaktives Fenster (`plt.show()`), falls True.
@@ -227,7 +227,7 @@ def plot_qt_diagrams(
     pinch = result.pinch_temperatures_K
 
     fig, axes = plt.subplots(2, 3, figsize=(15, 9))
-    fig.suptitle("AKM – Q-T-Diagramme (Pinch-Analyse)", fontsize=14, fontweight="bold")
+    fig.suptitle("AC – Q-T-Diagramme (Pinch-Analyse)", fontsize=14, fontweight="bold")
 
     # Lösungswärmeübertrager (SHEX): heiß = starke Lösung (4->5), kalt = schwache Lösung (2->3)
     _hx_panel(

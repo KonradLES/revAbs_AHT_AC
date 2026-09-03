@@ -65,7 +65,7 @@ def select_and_plot_qt_pdf(
     den Q-T-Diagrammen (bei T12_max) in ein gemeinsames PDF.
 
     Rechnet NICHTS neu -- nutzt die in `points[i].result` bereits enthaltenen
-    (streng nachgerechneten) AWTResult-Objekte. Überspringt mit Hinweis, wenn
+    (streng nachgerechneten) AHTResult-Objekte. Überspringt mit Hinweis, wenn
     kein feasibler Punkt vorhanden ist.
     """
     feasible_points = [p for p in points if p.feasible and p.result is not None]
@@ -94,7 +94,7 @@ def select_and_plot_qt_pdf(
         for p in selected:
             fig = plot_qt_diagrams(p.result, show=False, save_path=None)
             fig.suptitle(
-                f"AWT – Q-T-Diagramme (Pinch-Analyse) — T_waste = {p.T_waste_C:.0f} °C, "
+                f"AHT – Q-T-Diagramme (Pinch-Analyse) — T_waste = {p.T_waste_C:.0f} °C, "
                 f"T12_max = {p.T12_max_C:.2f} °C",
                 fontsize=14,
                 fontweight="bold",

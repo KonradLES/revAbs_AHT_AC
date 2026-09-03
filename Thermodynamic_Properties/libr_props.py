@@ -1,17 +1,18 @@
-"""LiBr/H2O-Stofffunktionen für die AWT-Simulation.
+"""LiBr/H2O property functions for the AWT simulation.
 
-Konventionen
-------------
-- x : LiBr-Molanteil in der Lösung [-]
-- w : LiBr-Massenanteil in der Lösung [-]
-- T : Temperatur [K]
-- p : Druck [Pa]
-- h : spezifische Enthalpie der Lösung [kJ/kg]
-- rho : Dichte der Lösung [kg/m^3]
+Conventions
+-----------
+- x : LiBr mole fraction in the solution [-]
+- w : LiBr mass fraction in the solution [-]
+- T : temperature [K]
+- p : pressure [Pa]
+- h : specific enthalpy of the solution [kJ/kg]
+- s : specific entropy of the solution [kJ/kg/K]
+- rho : density of the solution [kg/m^3]
 
-Die Implementierung verwendet die Patek-Korrelationen. Nach außen werden nur
-massenbasierte Größen mit konsistenten Einheiten für das Simulationsmodell
-bereitgestellt.
+The implementation uses the Patek correlations. Only mass-based quantities
+with consistent units are exposed externally, for use by the simulation
+model.
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ X_MAX_PAT = 0.399999  # Patek-Formulierungen enthalten den Faktor (0.4 - x)
 
 
 class PropertyError(RuntimeError):
-    """Fehler bei Stoffwert- oder Inversionsberechnungen."""
+    """Error during property or inversion calculations."""
 
 
 @dataclass(frozen=True)
@@ -45,32 +46,32 @@ class StateValidity:
 
 
 def _validate_x_patek_range(x_libr_mol: float, *, function_name: str) -> float:
-    """Prüft den LiBr-Molanteil gegen den Gültigkeitsbereich der Patek-Korrelationen."""
+    """Checks the LiBr mole fraction against the validity range of the Patek correlations."""
     x = float(x_libr_mol)
     if not (X_MIN_PAT <= x <= X_MAX_PAT):
         raise PropertyError(
-            f"{function_name}: LiBr-Molanteil x={x:.9f} liegt außerhalb des implementierten "
-            f"Patek-Gültigkeitsbereichs [{X_MIN_PAT:.9f}, {X_MAX_PAT:.6f}] [-]. "
-            f"Die verwendeten Korrelationen enthalten den Term (0.4 - x) und werden in dieser "
-            f"Implementierung nur für x < 0.4 ausgewertet."
+            f"{function_name}: LiBr mole fraction x={x:.9f} is outside the implemented "
+            f"Patek validity range [{X_MIN_PAT:.9f}, {X_MAX_PAT:.6f}] [-]. "
+            f"The correlations used contain the term (0.4 - x) and are only evaluated "
+            f"for x < 0.4 in this implementation."
         )
     return x
 
 
 
 def _validate_T_patek_range(T: float, *, function_name: str) -> float:
-    """Prüft die Temperatur gegen den Gültigkeitsbereich der Patek-Korrelationen."""
+    """Checks the temperature against the validity range of the Patek correlations."""
     T_val = float(T)
     if not (T_MIN_PAT <= T_val <= T_MAX_PAT):
         raise PropertyError(
-            f"{function_name}: Temperatur T={T_val:.6f} K liegt außerhalb des implementierten "
-            f"Patek-Gültigkeitsbereichs [{T_MIN_PAT:.2f}, {T_MAX_PAT:.2f}] K."
+            f"{function_name}: temperature T={T_val:.6f} K is outside the implemented "
+            f"Patek validity range [{T_MIN_PAT:.2f}, {T_MAX_PAT:.2f}] K."
         )
     return T_val
 
 
 # ---------------------------------------------------------------------------
-# Konzentrations- und Molmassenbeziehungen
+# Concentration and molar mass relationships
 # ---------------------------------------------------------------------------
 
 def mixture_molar_mass(x_libr_mol: float) -> float:
@@ -80,25 +81,25 @@ def mixture_molar_mass(x_libr_mol: float) -> float:
 
 
 def w_libr_from_x(x_libr_mol: float) -> float:
-    """LiBr-Massenanteil w aus LiBr-Molanteil x."""
+    """LiBr mass fraction w from LiBr mole fraction x."""
     x = _validate_x_patek_range(x_libr_mol, function_name="w_libr_from_x")
     return x * M_LIBR / mixture_molar_mass(x)
 
 
 
 def x_from_w_libr(w_libr: float) -> float:
-    """LiBr-Molanteil x aus LiBr-Massenanteil w."""
+    """LiBr mole fraction x from LiBr mass fraction w."""
     w = float(w_libr)
     denominator = M_LIBR - w * (M_LIBR - M_H2O)
     return (w * M_H2O) / denominator
 
 
 # ---------------------------------------------------------------------------
-# Direkte Patek-Funktionen (molare Basis)
+# Direct Patek functions (molar basis)
 # ---------------------------------------------------------------------------
 
 def calc_cp_molar_patek(T: float, x_libr_mol: float) -> float:
-    """Molare Wärmekapazität der LiBr/H2O-Lösung [J/mol/K]."""
+    """Molar heat capacity of the LiBr/H2O solution [J/mol/K]."""
     T = _validate_T_patek_range(T, function_name="calc_cp_molar_patek")
     cp_t = 76.0226
     T_c = 647.096
@@ -129,7 +130,7 @@ def calc_cp_molar_patek(T: float, x_libr_mol: float) -> float:
 
 
 def calc_h_molar_patek(T: float, x_libr_mol: float) -> float:
-    """Molare Enthalpie der LiBr/H2O-Lösung [J/mol]."""
+    """Molar enthalpy of the LiBr/H2O solution [J/mol]."""
     T = _validate_T_patek_range(T, function_name="calc_h_molar_patek")
     T_c = 647.096
     h_c = 37548.5
@@ -163,7 +164,7 @@ def calc_h_molar_patek(T: float, x_libr_mol: float) -> float:
 
 
 def calc_p_sat_patek(T: float, x_libr_mol: float) -> float:
-    """Sättigungsdruck der LiBr/H2O-Lösung [Pa]."""
+    """Saturation pressure of the LiBr/H2O solution [Pa]."""
     T = _validate_T_patek_range(T, function_name="calc_p_sat_patek")
     T_c = 647.096
     p_c = 22.064e6
@@ -188,7 +189,7 @@ def calc_p_sat_patek(T: float, x_libr_mol: float) -> float:
 
 
 def calc_rho_molar_patek(T: float, x_libr_mol: float) -> float:
-    """Molare Dichte der LiBr/H2O-Lösung [mol/m^3]."""
+    """Molar density of the LiBr/H2O solution [mol/m^3]."""
     T = _validate_T_patek_range(T, function_name="calc_rho_molar_patek")
     T_c = 647.096
     rho_c = 17.873
@@ -210,7 +211,7 @@ def calc_rho_molar_patek(T: float, x_libr_mol: float) -> float:
     return rho * 1000.0
 
 def calc_s_molar_patek(T: float, x_libr_mol: float) -> float:
-    """Molare Entropie der LiBr/H2O-Lösung [J/mol/K]."""
+    """Molar entropy of the LiBr/H2O solution [J/mol/K]."""
     T = _validate_T_patek_range(T, function_name="calc_s_molar_patek")
     x = _validate_x_patek_range(x_libr_mol, function_name="calc_s_molar_patek")
     T_c = 647.096              #[K]
@@ -218,7 +219,7 @@ def calc_s_molar_patek(T: float, x_libr_mol: float) -> float:
     T_0 = 221                  #[K]
 
     # Table 8
-    Koef_a = [  1.53091     *   10**0,
+    koef_a = [  1.53091     *   10**0,
                 -4.52564    *   10**0,
                 6.98302     *   10**2,
                 -2.1666     *   10**4,
@@ -247,21 +248,19 @@ def calc_s_molar_patek(T: float, x_libr_mol: float) -> float:
                 6.05007     *   10**-4,
                 -1.65228    *   10**-3,
                 1.22966     *   10**-3]
-    Koef_t = [0,0,0,0,0,1,1,1,2,2,2,2,2,2,2,2,3,3,3,3,4,4,4,4,4,5,5,5,5]
-    Koef_n = [0,1,6,6,2,0,0,4,0,0,4,0,4,5,2,5,0,4,0,1,0,2,4,7,1,0,1,2,3]
-    Koef_m = [1,1,2,3,6,1,3,5,1,2,2,4,5,5,6,6,1,3,5,7,1,1,1,2,3,1,1,1,1]
+    koef_t = [0,0,0,0,0,1,1,1,2,2,2,2,2,2,2,2,3,3,3,3,4,4,4,4,4,5,5,5,5]
+    koef_n = [0,1,6,6,2,0,0,4,0,0,4,0,4,5,2,5,0,4,0,1,0,2,4,7,1,0,1,2,3]
+    koef_m = [1,1,2,3,6,1,3,5,1,2,2,4,5,5,6,6,1,3,5,7,1,1,1,2,3,1,1,1,1]
     # Table 15
-    Koef_beta = [1/3,1,8/3,8]
-    Koef_alpha = [  -3.34112    *   10**-1,
+    koef_beta = [1/3,1,8/3,8]
+    koef_alpha = [  -3.34112    *   10**-1,
                     -8.47987    *   10**-1,
                     -9.11980    *   10**-1,
                     -1.64046    *   10**0]
 
     # Calculation of s_sat
-    sum = 0
-    for i in range(4):
-        sum = sum + Koef_alpha[i]*(1-(T/T_c))**Koef_beta[i]
-    s_sat = s_c * (1 + sum)
+    s_sat = s_c * (1.0 + sum(koef_alpha[i] * (1.0 - T / T_c) ** koef_beta[i] for i in range(4)))
+
     # Calculation of s
     factors = numpy.zeros((29,))
     a = 0
@@ -271,28 +270,28 @@ def calc_s_molar_patek(T: float, x_libr_mol: float) -> float:
     e = 0
     f = 0
     for i in range(29):
-        factors[i] =  Koef_a[i]*x**Koef_m[i]*(0.4-x)**Koef_n[i]
-        if Koef_t[i] == 0:
+        factors[i] =  koef_a[i]*x**koef_m[i]*(0.4-x)**koef_n[i]
+        if koef_t[i] == 0:
             f = f + factors[i]
-        elif Koef_t[i] == 1:
+        elif koef_t[i] == 1:
             e = e + factors[i]
-        elif Koef_t[i] == 2:
+        elif koef_t[i] == 2:
             d = d + factors[i]
-        elif Koef_t[i] == 3:
+        elif koef_t[i] == 3:
             c = c + factors[i]
-        elif Koef_t[i] == 4:
+        elif koef_t[i] == 4:
             b = b + factors[i]
-        elif Koef_t[i] == 5:
+        elif koef_t[i] == 5:
             a = a + factors[i]
     s = (1-x)*s_sat + s_c*(a*(T_c/(T-T_0))**5 + b*(T_c/(T-T_0))**4 + c*(T_c/(T-T_0))**3 + d*(T_c/(T-T_0))**2 + e*(T_c/(T-T_0))**1 + f)
     return s
 
 # ---------------------------------------------------------------------------
-# Massenbasierte Wrapper
+# Mass-based wrappers
 # ---------------------------------------------------------------------------
 
 def h_solution_mass_kjkg(T: float, x_libr_mol: float) -> float:
-    """Spezifische Enthalpie der Lösung [kJ/kg]."""
+    """Specific enthalpy of the solution [kJ/kg]."""
     T = _validate_T_patek_range(T, function_name="h_solution_mass_kjkg")
     x = _validate_x_patek_range(x_libr_mol, function_name="h_solution_mass_kjkg")
     return calc_h_molar_patek(T, x) / mixture_molar_mass(x) / 1000.0
@@ -300,7 +299,7 @@ def h_solution_mass_kjkg(T: float, x_libr_mol: float) -> float:
 
 
 def s_solution_mass_kjkgK(T: float, x_libr_mol: float) -> float:
-    """"Spezifische Entropie der LiBr/H2O-Lösung [kJ/kg/K]."""
+    """Specific entropy of the LiBr/H2O solution [kJ/kg/K]."""
     T = _validate_T_patek_range(T, function_name="s_solution_mass_kjkgK")
     x = _validate_x_patek_range(x_libr_mol, function_name="s_solution_mass_kjkgK")
     return calc_s_molar_patek(T, x) / mixture_molar_mass(x) / 1000.0
@@ -308,7 +307,7 @@ def s_solution_mass_kjkgK(T: float, x_libr_mol: float) -> float:
 
 
 def cp_solution_mass_kjkgk(T: float, x_libr_mol: float) -> float:
-    """Spezifische Wärmekapazität der Lösung [kJ/kg/K]."""
+    """Specific heat capacity of the solution [kJ/kg/K]."""
     T = _validate_T_patek_range(T, function_name="cp_solution_mass_kjkgk")
     x = _validate_x_patek_range(x_libr_mol, function_name="cp_solution_mass_kjkgk")
     return calc_cp_molar_patek(T, x) / mixture_molar_mass(x) / 1000.0
@@ -316,7 +315,7 @@ def cp_solution_mass_kjkgk(T: float, x_libr_mol: float) -> float:
 
 
 def rho_solution_mass(T: float, x_libr_mol: float) -> float:
-    """Massendichte der Lösung [kg/m^3]."""
+    """Mass density of the solution [kg/m^3]."""
     T = _validate_T_patek_range(T, function_name="rho_solution_mass")
     x = _validate_x_patek_range(x_libr_mol, function_name="rho_solution_mass")
     return calc_rho_molar_patek(T, x) * mixture_molar_mass(x)
@@ -324,7 +323,7 @@ def rho_solution_mass(T: float, x_libr_mol: float) -> float:
 
 
 def T_sat_solution_from_p_x(p_pa: float, x_libr_mol: float) -> float:
-    """Sättigungstemperatur der Lösung aus Druck und LiBr-Molanteil [K]."""
+    """Saturation temperature of the solution from pressure and LiBr mole fraction [K]."""
     x = _validate_x_patek_range(x_libr_mol, function_name="T_sat_solution_from_p_x")
 
     def fun(T: float) -> float:
@@ -334,15 +333,15 @@ def T_sat_solution_from_p_x(p_pa: float, x_libr_mol: float) -> float:
         sol = root_scalar(fun, bracket=[T_MIN_PAT + 1e-6, T_MAX_PAT - 1e-6], method="brentq")
     except ValueError as exc:
         raise PropertyError(
-            f"T_sat_solution_from_p_x: Keine Sättigungstemperatur im implementierten Patek-Temperaturbereich "
-            f"[{T_MIN_PAT:.2f}, {T_MAX_PAT:.2f}] K für p={p_pa:.3e} Pa und x={x:.9f} gefunden."
+            f"T_sat_solution_from_p_x: no saturation temperature found in the implemented Patek "
+            f"temperature range [{T_MIN_PAT:.2f}, {T_MAX_PAT:.2f}] K for p={p_pa:.3e} Pa and x={x:.9f}."
         ) from exc
     return _validate_T_patek_range(float(sol.root), function_name="T_sat_solution_from_p_x")
 
 
 
 def T_from_h_x_mass(h_kjkg: float, x_libr_mol: float) -> float:
-    """Temperatur der Lösung aus spezifischer Enthalpie und LiBr-Molanteil [K]."""
+    """Temperature of the solution from specific enthalpy and LiBr mole fraction [K]."""
     x = _validate_x_patek_range(x_libr_mol, function_name="T_from_h_x_mass")
 
     def fun(T: float) -> float:
@@ -352,10 +351,318 @@ def T_from_h_x_mass(h_kjkg: float, x_libr_mol: float) -> float:
         sol = root_scalar(fun, bracket=[T_MIN_PAT + 1e-6, T_MAX_PAT - 1e-6], method="brentq")
     except ValueError as exc:
         raise PropertyError(
-            f"T_from_h_x_mass: Keine Temperatur im implementierten Patek-Temperaturbereich "
-            f"[{T_MIN_PAT:.2f}, {T_MAX_PAT:.2f}] K für h={h_kjkg:.6f} kJ/kg und x={x:.9f} gefunden."
+            f"T_from_h_x_mass: no temperature found in the implemented Patek temperature range "
+            f"[{T_MIN_PAT:.2f}, {T_MAX_PAT:.2f}] K for h={h_kjkg:.6f} kJ/kg and x={x:.9f}."
         ) from exc
     return _validate_T_patek_range(float(sol.root), function_name="T_from_h_x_mass")
+
+
+def _flash_valve_state(
+    p_out_pa: float,
+    h_in_kJkg: float,
+    m_in_kg_s: float,
+    x_in_libr_mol: float,
+) -> dict:
+    """
+    Isenthalpic flash throttle for LiBr/H2O (shared implementation).
+
+    Assumptions
+    -----------
+    - The throttle is isenthalpic.
+    - After the throttle, equilibrium at p_out is established.
+    - The liquid phase is LiBr/H2O solution.
+    - The vapor phase is pure water.
+    - LiBr remains entirely in the liquid phase.
+
+    Energy basis
+    ------------
+    h_in_kJkg is the specific enthalpy of the inlet stream ahead of the
+    throttle, on a mass basis [kJ/kg]. Since the inlet stream consists
+    entirely of solution, this is consistent with the mass-averaged outlet
+    enthalpy h_mix_kJ_kg on a total-mass basis.
+
+    Returns
+    -------
+    Dictionary with:
+    - T_K
+    - x_LiBr_mol
+    - w_LiBr
+    - m_sol_kg_s
+    - m_flash_kg_s
+    - h_sol_kJ_kg
+    - h_flash_kJ_kg
+    - h_mix_kJ_kg
+    - flash_fraction
+    """
+    if p_out_pa <= 0.0:
+        raise PropertyError(
+            f"Flash throttle: p_out must be positive, got p_out={p_out_pa:.6e} Pa."
+        )
+
+    if m_in_kg_s <= 0.0:
+        raise PropertyError(
+            f"Flash throttle: m_in must be positive, got m_in={m_in_kg_s:.6f} kg/s."
+        )
+
+    x_in = float(x_in_libr_mol)
+    if not (X_MIN_PAT <= x_in <= X_MAX_PAT):
+        raise PropertyError(
+            f"Flash throttle: x_in={x_in:.6f} is outside the allowed range "
+            f"[{X_MIN_PAT:.6f}, {X_MAX_PAT:.6f}]."
+        )
+
+    w_in = w_libr_from_x(x_in)
+
+    # Lower temperature bound: no flash, original composition on the saturation line
+    T_lo = T_sat_solution_from_p_x(p_out_pa, x_in)
+
+    # Upper temperature bound: strongly concentrated solution at the same pressure
+    x_hi = X_MAX_PAT - 1.0e-4
+    if x_hi <= x_in:
+        x_hi = X_MAX_PAT - 1.0e-9
+
+    T_hi = T_sat_solution_from_p_x(p_out_pa, x_hi)
+
+    if T_hi <= T_lo:
+        raise PropertyError(
+            "Flash throttle: invalid temperature interval for the flash search. "
+            f"T_lo={T_lo:.6f} K, T_hi={T_hi:.6f} K."
+        )
+
+    # Tolerances for numerical edge cases
+    T_tol = 1.0e-8
+    p_tol = 1.0e-6
+    w_tol = 1.0e-10
+    m_tol = 1.0e-12
+
+    def x_eq_from_T(T_K: float) -> float:
+        """
+        Equilibrium liquid-phase composition x_out at a given temperature T_K
+        and pressure p_out_pa.
+        """
+        if not (T_MIN_PAT <= T_K <= T_MAX_PAT):
+            raise PropertyError(
+                f"Flash throttle: T={T_K:.6f} K is outside the allowed range "
+                f"[{T_MIN_PAT:.6f}, {T_MAX_PAT:.6f}] K."
+            )
+
+        # Explicit handling of the no-flash edge case
+        if T_K <= T_lo + T_tol:
+            return x_in
+
+        def f_x(x_val: float) -> float:
+            return calc_p_sat_patek(T_K, x_val) - p_out_pa
+
+        f_left = f_x(x_in)
+        if abs(f_left) <= p_tol:
+            return x_in
+
+        x_right = X_MAX_PAT - 1.0e-9
+        f_right = f_x(x_right)
+
+        if f_left * f_right > 0.0:
+            raise PropertyError(
+                "Flash throttle: no equilibrium composition x found in the interval "
+                f"[x_in, X_MAX_PAT] at T={T_K:.6f} K and p={p_out_pa:.3e} Pa. "
+                f"f(x_in)={f_left:.6e}, f(x_max)={f_right:.6e}."
+            )
+
+        try:
+            sol_x = root_scalar(
+                f_x,
+                bracket=[x_in, x_right],
+                method="brentq",
+            )
+        except ValueError as exc:
+            raise PropertyError(
+                f"Flash throttle: no equilibrium composition x found at "
+                f"T={T_K:.6f} K and p={p_out_pa:.3e} Pa."
+            ) from exc
+
+        return float(sol_x.root)
+
+    def build_state(T_K: float, strict: bool = False) -> dict:
+        # Explicit no-flash edge case
+        if T_K <= T_lo + T_tol:
+            x_out = x_in
+            w_out = w_in
+            m_out_sol = m_in_kg_s
+            m_out_flash = 0.0
+            h_out_sol = h_solution_mass_kjkg(T_K, x_out)
+            h_out_flash = CP.PropsSI("H", "T", T_K, "P", p_out_pa, "Water") / 1000.0
+            h_out_mix = h_out_sol
+
+            return {
+                "T_K": T_K,
+                "x_LiBr_mol": x_out,
+                "w_LiBr": w_out,
+                "m_sol_kg_s": m_out_sol,
+                "m_flash_kg_s": m_out_flash,
+                "h_sol_kJ_kg": h_out_sol,
+                "h_flash_kJ_kg": h_out_flash,
+                "h_mix_kJ_kg": h_out_mix,
+                "flash_fraction": 0.0,
+            }
+
+        x_out = x_eq_from_T(T_K)
+        w_out = w_libr_from_x(x_out)
+
+        # Near the flash boundary, numerical noise can make w_out minimally smaller than w_in.
+        if w_out < w_in:
+            if (w_in - w_out) <= w_tol:
+                x_out = x_in
+                w_out = w_in
+            elif strict:
+                raise PropertyError(
+                    "Flash throttle: the liquid solution after the throttle would be more "
+                    f"dilute than the inlet state. w_out={w_out:.12f}, w_in={w_in:.12f}."
+                )
+            else:
+                x_out = x_in
+                w_out = w_in
+
+        # LiBr balance: m_in * w_in = m_out_sol * w_out
+        m_out_sol = m_in_kg_s * w_in / w_out
+        m_out_flash = m_in_kg_s - m_out_sol
+
+        if m_out_flash < 0.0:
+            if abs(m_out_flash) <= m_tol:
+                m_out_flash = 0.0
+            elif strict:
+                raise PropertyError(
+                    f"Flash throttle: computed negative flash mass flow: "
+                    f"m_flash={m_out_flash:.12e} kg/s."
+                )
+            else:
+                m_out_flash = 0.0
+
+        h_out_sol = h_solution_mass_kjkg(T_K, x_out)
+
+        # Pure water vapor at (T_K, p_out_pa)
+        h_out_flash = CP.PropsSI("H", "T", T_K, "P", p_out_pa, "Water") / 1000.0
+
+        h_out_mix = (m_out_sol * h_out_sol + m_out_flash * h_out_flash) / m_in_kg_s
+
+        return {
+            "T_K": T_K,
+            "x_LiBr_mol": x_out,
+            "w_LiBr": w_out,
+            "m_sol_kg_s": m_out_sol,
+            "m_flash_kg_s": m_out_flash,
+            "h_sol_kJ_kg": h_out_sol,
+            "h_flash_kJ_kg": h_out_flash,
+            "h_mix_kJ_kg": h_out_mix,
+            "flash_fraction": m_out_flash / m_in_kg_s,
+        }
+
+    def residual(T_K: float) -> float:
+        state = build_state(T_K, strict=False)
+        return state["h_mix_kJ_kg"] - h_in_kJkg
+
+    r_lo = residual(T_lo)
+    h_tol = 1.0e-9
+
+    if abs(r_lo) <= h_tol:
+        return build_state(T_lo, strict=True)
+
+    # -------------------------------------------------------------------------
+    # True no-flash case, equivalent to the Modelica implementation
+    # -------------------------------------------------------------------------
+    #
+    # Previously the root search started at T_lo, i.e. at the boiling
+    # temperature of the inlet solution x_in at p_out.
+    #
+    # If h_in_kJkg is smaller than the liquid enthalpy at that point, the
+    # solution cannot flash after the throttle. It stays subcooled:
+    #
+    #   Q = 0
+    #   x_out = x_in
+    #   w_out = w_in
+    #   m_flash = 0
+    #
+    # Then T_out must be determined from the isenthalpic liquid condition:
+    #
+    #   h_solution_mass_kjkg(T_out, x_in) = h_in
+    #
+    # This corresponds exactly to the Modelica branch:
+    #
+    #   if Q_intern <= 0 then
+    #       Q = 0;
+    #       X_LiBr_out = X_LiBr_in;
+    #       h_out = h_solution(T_out, X_LiBr_out, p_out);
+    #   end if;
+    #
+    # In residual form:
+    #
+    #   r_lo = h_solution(T_lo, x_in) - h_in
+    #
+    # If r_lo > 0, h_in is too low for a saturated/flashing state.
+    # We then search for T_out below T_lo.
+    # -------------------------------------------------------------------------
+    if r_lo > 0.0:
+
+        def residual_no_flash(T_K: float) -> float:
+            return h_solution_mass_kjkg(T_K, x_in) - h_in_kJkg
+
+        T_no_flash_lo = T_MIN_PAT
+        r_no_flash_lo = residual_no_flash(T_no_flash_lo)
+
+        if abs(r_no_flash_lo) <= h_tol:
+            return build_state(T_no_flash_lo, strict=True)
+
+        if r_no_flash_lo * r_lo > 0.0:
+            raise PropertyError(
+                "Flash throttle: no no-flash state found in the temperature interval "
+                f"[{T_no_flash_lo:.6f}, {T_lo:.6f}] K. "
+                "The inlet enthalpy is presumably outside the valid enthalpy range "
+                "of the LiBr/H2O correlation. "
+                f"Residual at T_min = {r_no_flash_lo:.6e} kJ/kg, "
+                f"residual at T_lo = {r_lo:.6e} kJ/kg."
+            )
+
+        try:
+            sol_T_no_flash = root_scalar(
+                residual_no_flash,
+                bracket=[T_no_flash_lo, T_lo],
+                method="brentq",
+            )
+        except ValueError as exc:
+            raise PropertyError(
+                "Flash throttle: root search for the no-flash case failed. "
+                f"Search interval: T_min={T_no_flash_lo:.6f} K, "
+                f"T_lo={T_lo:.6f} K."
+            ) from exc
+
+        return build_state(float(sol_T_no_flash.root), strict=True)
+
+    # From here on r_lo < 0:
+    # The inlet enthalpy exceeds the enthalpy of the saturated inlet solution
+    # at p_out, so a flash state must be found.
+    r_hi = residual(T_hi)
+    if abs(r_hi) <= h_tol:
+        return build_state(T_hi, strict=True)
+
+    if r_lo * r_hi > 0.0:
+        raise PropertyError(
+            "Flash throttle: no sign change of the enthalpy residual in the "
+            f"temperature interval [{T_lo:.6f}, {T_hi:.6f}] K. "
+            f"Residual at lower bound = {r_lo:.6e} kJ/kg, "
+            f"residual at upper bound = {r_hi:.6e} kJ/kg."
+        )
+
+    try:
+        sol_T = root_scalar(
+            residual,
+            bracket=[T_lo, T_hi],
+            method="brentq",
+        )
+    except ValueError as exc:
+        raise PropertyError(
+            "Flash throttle: root search for the isenthalpic flash condition failed. "
+            f"Search interval: T_lo={T_lo:.6f} K, T_hi={T_hi:.6f} K."
+        ) from exc
+
+    return build_state(float(sol_T.root), strict=True)
 
 
 def flash_valve_state_2_to_1(
@@ -364,27 +671,13 @@ def flash_valve_state_2_to_1(
     m2_kg_s: float,
     x2_libr_mol: float,
     ) -> dict:
-    """
-    Einfache isenthalpe Flash-Drossel 2 -> 1 für LiBr/H2O.
+    """Isenthalpic flash throttle 2 -> 1 for LiBr/H2O.
 
-    Annahmen
-    --------
-    - Die Drossel ist isenthalp.
-    - Nach der Drossel liegt Gleichgewicht bei p_out vor.
-    - Die Flüssigphase ist LiBr/H2O-Lösung.
-    - Die Dampfphase ist reines Wasser.
-    - LiBr verbleibt vollständig in der Flüssigphase.
+    See _flash_valve_state() for the model assumptions and energy basis.
 
-    Energiebasis
-    ------------
-    h2_kJkg ist als spezifische Enthalpie des Eintrittsstroms vor der Drossel
-    auf Massenbasis [kJ/kg] zu verstehen. Da der Eintrittsstrom vollständig
-    aus Lösung besteht, ist dies mit der gemittelten Austrittsenthalpie
-    h1_mix_kJ_kg auf Gesamtmassenbasis konsistent.
-
-    Rückgabe
-    --------
-    Dictionary mit:
+    Returns
+    -------
+    Dictionary with:
     - T1_K
     - x1_LiBr_mol
     - w1_LiBr
@@ -395,275 +688,19 @@ def flash_valve_state_2_to_1(
     - h1_mix_kJ_kg
     - flash_fraction
     """
-    if p_out_pa <= 0.0:
-        raise PropertyError(
-            f"Flash-Drossel: p_out muss positiv sein, erhalten p_out={p_out_pa:.6e} Pa."
-        )
+    state = _flash_valve_state(p_out_pa, h2_kJkg, m2_kg_s, x2_libr_mol)
+    return {
+        "T1_K": state["T_K"],
+        "x1_LiBr_mol": state["x_LiBr_mol"],
+        "w1_LiBr": state["w_LiBr"],
+        "m1_sol_kg_s": state["m_sol_kg_s"],
+        "m1_flash_kg_s": state["m_flash_kg_s"],
+        "h1_sol_kJ_kg": state["h_sol_kJ_kg"],
+        "h1_flash_kJ_kg": state["h_flash_kJ_kg"],
+        "h1_mix_kJ_kg": state["h_mix_kJ_kg"],
+        "flash_fraction": state["flash_fraction"],
+    }
 
-    if m2_kg_s <= 0.0:
-        raise PropertyError(
-            f"Flash-Drossel: m2 muss positiv sein, erhalten m2={m2_kg_s:.6f} kg/s."
-        )
-
-    x2 = float(x2_libr_mol)
-    if not (X_MIN_PAT <= x2 <= X_MAX_PAT):
-        raise PropertyError(
-            f"Flash-Drossel: x2={x2:.6f} liegt außerhalb des zulässigen Bereichs "
-            f"[{X_MIN_PAT:.6f}, {X_MAX_PAT:.6f}]."
-        )
-
-    w2 = w_libr_from_x(x2)
-
-    # Untere Temperaturgrenze: kein Flash, ursprüngliche Zusammensetzung auf Sättigungslinie
-    T_lo = T_sat_solution_from_p_x(p_out_pa, x2)
-
-    # Obere Temperaturgrenze: stark konzentrierte Lösung bei gleichem Druck
-    x_hi = X_MAX_PAT - 1.0e-4
-    if x_hi <= x2:
-        x_hi = X_MAX_PAT - 1.0e-9
-
-    T_hi = T_sat_solution_from_p_x(p_out_pa, x_hi)
-
-    if T_hi <= T_lo:
-        raise PropertyError(
-            "Flash-Drossel: Ungültiges Temperaturintervall für die Flash-Suche. "
-            f"T_lo={T_lo:.6f} K, T_hi={T_hi:.6f} K."
-        )
-
-    # Toleranzen für numerische Grenzfälle
-    T_tol = 1.0e-8
-    p_tol = 1.0e-6
-    w_tol = 1.0e-10
-    m_tol = 1.0e-12
-
-    def x_eq_from_T(T_K: float) -> float:
-        """
-        Gleichgewichtszusammensetzung x1 der Flüssigphase bei gegebener Temperatur T_K
-        und Druck p_out_pa.
-        """
-        if not (T_MIN_PAT <= T_K <= T_MAX_PAT):
-            raise PropertyError(
-                f"Flash-Drossel: T={T_K:.6f} K liegt außerhalb des zulässigen Bereichs "
-                f"[{T_MIN_PAT:.6f}, {T_MAX_PAT:.6f}] K."
-            )
-
-        # Explizite Behandlung des No-Flash-Grenzfalls
-        if T_K <= T_lo + T_tol:
-            return x2
-
-        def f_x(x_val: float) -> float:
-            return calc_p_sat_patek(T_K, x_val) - p_out_pa
-
-        f_left = f_x(x2)
-        if abs(f_left) <= p_tol:
-            return x2
-
-        x_right = X_MAX_PAT - 1.0e-9
-        f_right = f_x(x_right)
-
-        if f_left * f_right > 0.0:
-            raise PropertyError(
-                "Flash-Drossel: Keine Gleichgewichtszusammensetzung x im Intervall "
-                f"[x2, X_MAX_PAT] bei T={T_K:.6f} K und p={p_out_pa:.3e} Pa gefunden. "
-                f"f(x2)={f_left:.6e}, f(x_max)={f_right:.6e}."
-            )
-
-        try:
-            sol_x = root_scalar(
-                f_x,
-                bracket=[x2, x_right],
-                method="brentq",
-            )
-        except ValueError as exc:
-            raise PropertyError(
-                f"Flash-Drossel: Keine Gleichgewichtszusammensetzung x bei "
-                f"T={T_K:.6f} K und p={p_out_pa:.3e} Pa gefunden."
-            ) from exc
-
-        return float(sol_x.root)
-
-    def build_state(T_K: float, strict: bool = False) -> dict:
-        # Expliziter No-Flash-Grenzfall
-        if T_K <= T_lo + T_tol:
-            x1 = x2
-            w1 = w2
-            m1_sol = m2_kg_s
-            m1_flash = 0.0
-            h1_sol = h_solution_mass_kjkg(T_K, x1)
-            h1_flash = CP.PropsSI("H", "T", T_K, "P", p_out_pa, "Water") / 1000.0
-            h1_mix = h1_sol
-
-            return {
-                "T1_K": T_K,
-                "x1_LiBr_mol": x1,
-                "w1_LiBr": w1,
-                "m1_sol_kg_s": m1_sol,
-                "m1_flash_kg_s": m1_flash,
-                "h1_sol_kJ_kg": h1_sol,
-                "h1_flash_kJ_kg": h1_flash,
-                "h1_mix_kJ_kg": h1_mix,
-                "flash_fraction": 0.0,
-            }
-
-        x1 = x_eq_from_T(T_K)
-        w1 = w_libr_from_x(x1)
-
-        # Nahe der Flash-Grenze kann durch numerisches Rauschen w1 minimal kleiner als w2 werden.
-        if w1 < w2:
-            if (w2 - w1) <= w_tol:
-                x1 = x2
-                w1 = w2
-            elif strict:
-                raise PropertyError(
-                    "Flash-Drossel: Die Flüssiglösung nach der Drossel wäre verdünnter "
-                    f"als der Eintrittszustand. w1={w1:.12f}, w2={w2:.12f}."
-                )
-            else:
-                x1 = x2
-                w1 = w2
-
-        # LiBr-Bilanz: m2 * w2 = m1_sol * w1
-        m1_sol = m2_kg_s * w2 / w1
-        m1_flash = m2_kg_s - m1_sol
-
-        if m1_flash < 0.0:
-            if abs(m1_flash) <= m_tol:
-                m1_flash = 0.0
-            elif strict:
-                raise PropertyError(
-                    f"Flash-Drossel: negativer Flashmassenstrom berechnet: "
-                    f"m1_flash={m1_flash:.12e} kg/s."
-                )
-            else:
-                m1_flash = 0.0
-
-        h1_sol = h_solution_mass_kjkg(T_K, x1)
-
-        # Reiner Wasserdampf bei (T_K, p_out_pa)
-        h1_flash = CP.PropsSI("H", "T", T_K, "P", p_out_pa, "Water") / 1000.0
-
-        h1_mix = (m1_sol * h1_sol + m1_flash * h1_flash) / m2_kg_s
-
-        return {
-            "T1_K": T_K,
-            "x1_LiBr_mol": x1,
-            "w1_LiBr": w1,
-            "m1_sol_kg_s": m1_sol,
-            "m1_flash_kg_s": m1_flash,
-            "h1_sol_kJ_kg": h1_sol,
-            "h1_flash_kJ_kg": h1_flash,
-            "h1_mix_kJ_kg": h1_mix,
-            "flash_fraction": m1_flash / m2_kg_s,
-        }
-
-    def residual(T_K: float) -> float:
-        state = build_state(T_K, strict=False)
-        return state["h1_mix_kJ_kg"] - h2_kJkg
-
-    r_lo = residual(T_lo)
-    h_tol = 1.0e-9
-
-    if abs(r_lo) <= h_tol:
-        return build_state(T_lo, strict=True)
-
-    # -------------------------------------------------------------------------
-    # NEU: echter No-Flash-Fall äquivalent zur Modelica-Implementierung
-    # -------------------------------------------------------------------------
-    #
-    # Bisher begann die Nullstellensuche bei T_lo, also bei der Siedetemperatur
-    # der Eintrittslösung x2 bei p_out.
-    #
-    # Falls h2_kJkg kleiner ist als die Flüssigkeitsenthalpie an diesem Punkt,
-    # kann die Lösung nach der Drossel nicht flashen. Sie bleibt unterkühlt:
-    #
-    #   Q = 0
-    #   x1 = x2
-    #   w1 = w2
-    #   m1_flash = 0
-    #
-    # Dann muss T1 aus der isenthalpen Flüssigkeitsbedingung bestimmt werden:
-    #
-    #   h_solution_mass_kjkg(T1, x2) = h2_kJkg
-    #
-    # Genau das entspricht dem Modelica-Zweig:
-    #
-    #   if Q_intern <= 0 then
-    #       Q = 0;
-    #       X_LiBr_out = X_LiBr_in;
-    #       h_out = h_solution(T_out, X_LiBr_out, p_out);
-    #   end if;
-    #
-    # In Residual-Schreibweise ist:
-    #
-    #   r_lo = h_solution(T_lo, x2) - h2
-    #
-    # Wenn r_lo > 0, ist h2 zu niedrig für einen gesättigten/flashenden Zustand.
-    # Dann suchen wir T1 unterhalb von T_lo.
-    # -------------------------------------------------------------------------
-    if r_lo > 0.0:
-
-        def residual_no_flash(T_K: float) -> float:
-            return h_solution_mass_kjkg(T_K, x2) - h2_kJkg
-
-        T_no_flash_lo = T_MIN_PAT
-        r_no_flash_lo = residual_no_flash(T_no_flash_lo)
-
-        if abs(r_no_flash_lo) <= h_tol:
-            return build_state(T_no_flash_lo, strict=True)
-
-        if r_no_flash_lo * r_lo > 0.0:
-            raise PropertyError(
-                "Flash-Drossel: Kein No-Flash-Zustand im Temperaturintervall "
-                f"[{T_no_flash_lo:.6f}, {T_lo:.6f}] K gefunden. "
-                "Die Eintrittsenthalpie liegt vermutlich außerhalb des zulässigen "
-                "Enthalpiebereichs der LiBr/H2O-Korrelation. "
-                f"Residual bei T_min = {r_no_flash_lo:.6e} kJ/kg, "
-                f"Residual bei T_lo = {r_lo:.6e} kJ/kg."
-            )
-
-        try:
-            sol_T_no_flash = root_scalar(
-                residual_no_flash,
-                bracket=[T_no_flash_lo, T_lo],
-                method="brentq",
-            )
-        except ValueError as exc:
-            raise PropertyError(
-                "Flash-Drossel: Nullstellensuche für den No-Flash-Fall fehlgeschlagen. "
-                f"Prüfintervall: T_min={T_no_flash_lo:.6f} K, "
-                f"T_lo={T_lo:.6f} K."
-            ) from exc
-
-        return build_state(float(sol_T_no_flash.root), strict=True)
-
-    # Ab hier gilt r_lo < 0:
-    # Die Eintrittsenthalpie ist größer als die Enthalpie der gesättigten
-    # Eintrittslösung bei p_out. Es muss daher ein Flash-Zustand gesucht werden.
-    r_hi = residual(T_hi)
-    if abs(r_hi) <= h_tol:
-        return build_state(T_hi, strict=True)
-
-    if r_lo * r_hi > 0.0:
-        raise PropertyError(
-            "Flash-Drossel: Kein Vorzeichenwechsel des Enthalpie-Residuals im "
-            f"Temperaturintervall [{T_lo:.6f}, {T_hi:.6f}] K. "
-            f"Residual unten = {r_lo:.6e} kJ/kg, "
-            f"Residual oben  = {r_hi:.6e} kJ/kg."
-        )
-
-    try:
-        sol_T = root_scalar(
-            residual,
-            bracket=[T_lo, T_hi],
-            method="brentq",
-        )
-    except ValueError as exc:
-        raise PropertyError(
-            "Flash-Drossel: Nullstellensuche für die isenthalpe Flash-Bedingung fehlgeschlagen. "
-            f"Prüfintervall: T_lo={T_lo:.6f} K, T_hi={T_hi:.6f} K."
-        ) from exc
-
-    return build_state(float(sol_T.root), strict=True)
 
 def flash_valve_state_5_to_6(
     p_out_pa: float,
@@ -671,27 +708,13 @@ def flash_valve_state_5_to_6(
     m5_kg_s: float,
     x5_libr_mol: float,
     ) -> dict:
-    """
-    Einfache isenthalpe Flash-Drossel 5 -> 6 für LiBr/H2O.
+    """Isenthalpic flash throttle 5 -> 6 for LiBr/H2O.
 
-    Annahmen
-    --------
-    - Die Drossel ist isenthalp.
-    - Nach der Drossel liegt Gleichgewicht bei p_out vor.
-    - Die Flüssigphase ist LiBr/H2O-Lösung.
-    - Die Dampfphase ist reines Wasser.
-    - LiBr verbleibt vollständig in der Flüssigphase.
+    See _flash_valve_state() for the model assumptions and energy basis.
 
-    Energiebasis
-    ------------
-    h5_kJkg ist als spezifische Enthalpie des Eintrittsstroms vor der Drossel
-    auf Massenbasis [kJ/kg] zu verstehen. Da der Eintrittsstrom vollständig
-    aus Lösung besteht, ist dies mit der gemittelten Austrittsenthalpie
-    h6_mix_kJ_kg auf Gesamtmassenbasis konsistent.
-
-    Rückgabe
-    --------
-    Dictionary mit:
+    Returns
+    -------
+    Dictionary with:
     - T6_K
     - x6_LiBr_mol
     - w6_LiBr
@@ -702,288 +725,31 @@ def flash_valve_state_5_to_6(
     - h6_mix_kJ_kg
     - flash_fraction
     """
-    if p_out_pa <= 0.0:
-        raise PropertyError(
-            f"Flash-Drossel: p_out muss positiv sein, erhalten p_out={p_out_pa:.6e} Pa."
-        )
-
-    if m5_kg_s <= 0.0:
-        raise PropertyError(
-            f"Flash-Drossel: m5 muss positiv sein, erhalten m5={m5_kg_s:.6f} kg/s."
-        )
-
-    x5 = float(x5_libr_mol)
-    if not (X_MIN_PAT <= x5 <= X_MAX_PAT):
-        raise PropertyError(
-            f"Flash-Drossel: x5={x5:.6f} liegt außerhalb des zulässigen Bereichs "
-            f"[{X_MIN_PAT:.6f}, {X_MAX_PAT:.6f}]."
-        )
-
-    w5 = w_libr_from_x(x5)
-
-    # Untere Temperaturgrenze: kein Flash, ursprüngliche Zusammensetzung auf Sättigungslinie
-    T_lo = T_sat_solution_from_p_x(p_out_pa, x5)
-
-    # Obere Temperaturgrenze: stark konzentrierte Lösung bei gleichem Druck
-    x_hi = X_MAX_PAT - 1.0e-4
-    if x_hi <= x5:
-        x_hi = X_MAX_PAT - 1.0e-9
-
-    T_hi = T_sat_solution_from_p_x(p_out_pa, x_hi)
-
-    if T_hi <= T_lo:
-        raise PropertyError(
-            "Flash-Drossel: Ungültiges Temperaturintervall für die Flash-Suche. "
-            f"T_lo={T_lo:.6f} K, T_hi={T_hi:.6f} K."
-        )
-
-    # Toleranzen für numerische Grenzfälle
-    T_tol = 1.0e-8
-    p_tol = 1.0e-6
-    w_tol = 1.0e-10
-    m_tol = 1.0e-12
-
-    def x_eq_from_T(T_K: float) -> float:
-        """
-        Gleichgewichtszusammensetzung x6 der Flüssigphase bei gegebener Temperatur T_K
-        und Druck p_out_pa.
-        """
-        if not (T_MIN_PAT <= T_K <= T_MAX_PAT):
-            raise PropertyError(
-                f"Flash-Drossel: T={T_K:.6f} K liegt außerhalb des zulässigen Bereichs "
-                f"[{T_MIN_PAT:.6f}, {T_MAX_PAT:.6f}] K."
-            )
-
-        # Explizite Behandlung des No-Flash-Grenzfalls
-        if T_K <= T_lo + T_tol:
-            return x5
-
-        def f_x(x_val: float) -> float:
-            return calc_p_sat_patek(T_K, x_val) - p_out_pa
-
-        f_left = f_x(x5)
-        if abs(f_left) <= p_tol:
-            return x5
-
-        x_right = X_MAX_PAT - 1.0e-9
-        f_right = f_x(x_right)
-
-        if f_left * f_right > 0.0:
-            raise PropertyError(
-                "Flash-Drossel: Keine Gleichgewichtszusammensetzung x im Intervall "
-                f"[x5, X_MAX_PAT] bei T={T_K:.6f} K und p={p_out_pa:.3e} Pa gefunden. "
-                f"f(x5)={f_left:.6e}, f(x_max)={f_right:.6e}."
-            )
-
-        try:
-            sol_x = root_scalar(
-                f_x,
-                bracket=[x5, x_right],
-                method="brentq",
-            )
-        except ValueError as exc:
-            raise PropertyError(
-                f"Flash-Drossel: Keine Gleichgewichtszusammensetzung x bei "
-                f"T={T_K:.6f} K und p={p_out_pa:.3e} Pa gefunden."
-            ) from exc
-
-        return float(sol_x.root)
-
-    def build_state(T_K: float, strict: bool = False) -> dict:
-        # Expliziter No-Flash-Grenzfall
-        if T_K <= T_lo + T_tol:
-            x6 = x5
-            w6 = w5
-            m6_sol = m5_kg_s
-            m6_flash = 0.0
-            h6_sol = h_solution_mass_kjkg(T_K, x6)
-            h6_flash = CP.PropsSI("H", "T", T_K, "P", p_out_pa, "Water") / 1000.0
-            h6_mix = h6_sol
-
-            return {
-                "T6_K": T_K,
-                "x6_LiBr_mol": x6,
-                "w6_LiBr": w6,
-                "m6_sol_kg_s": m6_sol,
-                "m6_flash_kg_s": m6_flash,
-                "h6_sol_kJ_kg": h6_sol,
-                "h6_flash_kJ_kg": h6_flash,
-                "h6_mix_kJ_kg": h6_mix,
-                "flash_fraction": 0.0,
-            }
-
-        x6 = x_eq_from_T(T_K)
-        w6 = w_libr_from_x(x6)
-
-        # Nahe der Flash-Grenze kann durch numerisches Rauschen w6 minimal kleiner als w5 werden.
-        if w6 < w5:
-            if (w5 - w6) <= w_tol:
-                x6 = x5
-                w6 = w5
-            elif strict:
-                raise PropertyError(
-                    "Flash-Drossel: Die Flüssiglösung nach der Drossel wäre verdünnter "
-                    f"als der Eintrittszustand. w6={w6:.12f}, w5={w5:.12f}."
-                )
-            else:
-                x6 = x5
-                w6 = w5
-
-        # LiBr-Bilanz: m5 * w5 = m6_sol * w6
-        m6_sol = m5_kg_s * w5 / w6
-        m6_flash = m5_kg_s - m6_sol
-
-        if m6_flash < 0.0:
-            if abs(m6_flash) <= m_tol:
-                m6_flash = 0.0
-            elif strict:
-                raise PropertyError(
-                    f"Flash-Drossel: negativer Flashmassenstrom berechnet: "
-                    f"m6_flash={m6_flash:.12e} kg/s."
-                )
-            else:
-                m6_flash = 0.0
-
-        h6_sol = h_solution_mass_kjkg(T_K, x6)
-
-        # Reiner Wasserdampf bei (T_K, p_out_pa)
-        h6_flash = CP.PropsSI("H", "T", T_K, "P", p_out_pa, "Water") / 1000.0
-
-        h6_mix = (m6_sol * h6_sol + m6_flash * h6_flash) / m5_kg_s
-
-        return {
-            "T6_K": T_K,
-            "x6_LiBr_mol": x6,
-            "w6_LiBr": w6,
-            "m6_sol_kg_s": m6_sol,
-            "m6_flash_kg_s": m6_flash,
-            "h6_sol_kJ_kg": h6_sol,
-            "h6_flash_kJ_kg": h6_flash,
-            "h6_mix_kJ_kg": h6_mix,
-            "flash_fraction": m6_flash / m5_kg_s,
-        }
-
-    def residual(T_K: float) -> float:
-        state = build_state(T_K, strict=False)
-        return state["h6_mix_kJ_kg"] - h5_kJkg
-
-    r_lo = residual(T_lo)
-    h_tol = 1.0e-9
-
-    if abs(r_lo) <= h_tol:
-        return build_state(T_lo, strict=True)
-
-    # -------------------------------------------------------------------------
-    # NEU: echter No-Flash-Fall äquivalent zur Modelica-Implementierung
-    # -------------------------------------------------------------------------
-    #
-    # Bisher begann die Nullstellensuche bei T_lo, also bei der Siedetemperatur
-    # der Eintrittslösung x5 bei p_out.
-    #
-    # Falls h5_kJkg kleiner ist als die Flüssigkeitsenthalpie an diesem Punkt,
-    # kann die Lösung nach der Drossel nicht flashen. Sie bleibt unterkühlt:
-    #
-    #   Q = 0
-    #   x6 = x5
-    #   w6 = w5
-    #   m6_flash = 0
-    #
-    # Dann muss T6 aus der isenthalpen Flüssigkeitsbedingung bestimmt werden:
-    #
-    #   h_solution_mass_kjkg(T6, x5) = h5_kJkg
-    #
-    # Genau das entspricht dem Modelica-Zweig:
-    #
-    #   if Q_intern <= 0 then
-    #       Q = 0;
-    #       X_LiBr_out = X_LiBr_in;
-    #       h_out = h_solution(T_out, X_LiBr_out, p_out);
-    #   end if;
-    #
-    # In Residual-Schreibweise ist:
-    #
-    #   r_lo = h_solution(T_lo, x5) - h5
-    #
-    # Wenn r_lo > 0, ist h5 zu niedrig für einen gesättigten/flashenden Zustand.
-    # Dann suchen wir T6 unterhalb von T_lo.
-    # -------------------------------------------------------------------------
-    if r_lo > 0.0:
-
-        def residual_no_flash(T_K: float) -> float:
-            return h_solution_mass_kjkg(T_K, x5) - h5_kJkg
-
-        T_no_flash_lo = T_MIN_PAT
-        r_no_flash_lo = residual_no_flash(T_no_flash_lo)
-
-        if abs(r_no_flash_lo) <= h_tol:
-            return build_state(T_no_flash_lo, strict=True)
-
-        if r_no_flash_lo * r_lo > 0.0:
-            raise PropertyError(
-                "Flash-Drossel: Kein No-Flash-Zustand im Temperaturintervall "
-                f"[{T_no_flash_lo:.6f}, {T_lo:.6f}] K gefunden. "
-                "Die Eintrittsenthalpie liegt vermutlich außerhalb des zulässigen "
-                "Enthalpiebereichs der LiBr/H2O-Korrelation. "
-                f"Residual bei T_min = {r_no_flash_lo:.6e} kJ/kg, "
-                f"Residual bei T_lo = {r_lo:.6e} kJ/kg."
-            )
-
-        try:
-            sol_T_no_flash = root_scalar(
-                residual_no_flash,
-                bracket=[T_no_flash_lo, T_lo],
-                method="brentq",
-            )
-        except ValueError as exc:
-            raise PropertyError(
-                "Flash-Drossel: Nullstellensuche für den No-Flash-Fall fehlgeschlagen. "
-                f"Prüfintervall: T_min={T_no_flash_lo:.6f} K, "
-                f"T_lo={T_lo:.6f} K."
-            ) from exc
-
-        return build_state(float(sol_T_no_flash.root), strict=True)
-
-    # Ab hier gilt r_lo < 0:
-    # Die Eintrittsenthalpie ist größer als die Enthalpie der gesättigten
-    # Eintrittslösung bei p_out. Es muss daher ein Flash-Zustand gesucht werden.
-    r_hi = residual(T_hi)
-    if abs(r_hi) <= h_tol:
-        return build_state(T_hi, strict=True)
-
-    if r_lo * r_hi > 0.0:
-        raise PropertyError(
-            "Flash-Drossel: Kein Vorzeichenwechsel des Enthalpie-Residuals im "
-            f"Temperaturintervall [{T_lo:.6f}, {T_hi:.6f}] K. "
-            f"Residual unten = {r_lo:.6e} kJ/kg, "
-            f"Residual oben  = {r_hi:.6e} kJ/kg."
-        )
-
-    try:
-        sol_T = root_scalar(
-            residual,
-            bracket=[T_lo, T_hi],
-            method="brentq",
-        )
-    except ValueError as exc:
-        raise PropertyError(
-            "Flash-Drossel: Nullstellensuche für die isenthalpe Flash-Bedingung fehlgeschlagen. "
-            f"Prüfintervall: T_lo={T_lo:.6f} K, T_hi={T_hi:.6f} K."
-        ) from exc
-
-    return build_state(float(sol_T.root), strict=True)
+    state = _flash_valve_state(p_out_pa, h5_kJkg, m5_kg_s, x5_libr_mol)
+    return {
+        "T6_K": state["T_K"],
+        "x6_LiBr_mol": state["x_LiBr_mol"],
+        "w6_LiBr": state["w_LiBr"],
+        "m6_sol_kg_s": state["m_sol_kg_s"],
+        "m6_flash_kg_s": state["m_flash_kg_s"],
+        "h6_sol_kJ_kg": state["h_sol_kJ_kg"],
+        "h6_flash_kJ_kg": state["h_flash_kJ_kg"],
+        "h6_mix_kJ_kg": state["h_mix_kJ_kg"],
+        "flash_fraction": state["flash_fraction"],
+    }
 
 # ---------------------------------------------------------------------------
-# Kristallisationskorrelation und Zustandsvalidierung
+# Crystallization correlation and state validation
 # ---------------------------------------------------------------------------
 
 def crystallization_limit(decider: str, value: float) -> float:
-    """Kritische Temperatur oder kritischer LiBr-Massenanteil nach Boryta/Albers.
+    """Critical temperature or critical LiBr mass fraction per Boryta/Albers.
 
     Parameters
     ----------
     decider:
-        "w" -> kritische Temperatur [°C] aus LiBr-Massenanteil [-]
-        "T" -> kritischer LiBr-Massenanteil [-] aus Temperatur [K]
+        "w" -> critical temperature [degC] from LiBr mass fraction [-]
+        "T" -> critical LiBr mass fraction [-] from temperature [K]
     """
     if decider == "w":
         parameter_T = [
@@ -1002,7 +768,7 @@ def crystallization_limit(decider: str, value: float) -> float:
         T_r = (T_c - 54.793) / 33.111
         return sum(parameter_w[i] * T_r**i for i in range(8))
 
-    raise ValueError("decider muss 'T' oder 'w' sein")
+    raise ValueError("decider must be 'T' or 'w'")
 
 
 
@@ -1012,7 +778,7 @@ def validate_solution_state(T: float, w_libr: float, label: str = "") -> StateVa
             in_patek_range=False,
             crystallization_checked=False,
             crystallization_safe=False,
-            message=f"{label}: Temperatur {T:.3f} K liegt außerhalb des Patek-Bereichs [{T_MIN_PAT:.2f}, {T_MAX_PAT:.2f}] K.",
+            message=f"{label}: temperature {T:.3f} K is outside the Patek range [{T_MIN_PAT:.2f}, {T_MAX_PAT:.2f}] K.",
         )
 
     if not (273.15 <= T <= 374.0):
@@ -1020,7 +786,7 @@ def validate_solution_state(T: float, w_libr: float, label: str = "") -> StateVa
             in_patek_range=True,
             crystallization_checked=False,
             crystallization_safe=True,
-            message=f"{label}: Temperatur {T:.3f} K liegt außerhalb des Boryta-Prüfbereichs; Kristallisation wurde nicht bewertet.",
+            message=f"{label}: temperature {T:.3f} K is outside the Boryta check range; crystallization was not evaluated.",
         )
 
     if w_libr <= 0.57:
@@ -1028,7 +794,7 @@ def validate_solution_state(T: float, w_libr: float, label: str = "") -> StateVa
             in_patek_range=True,
             crystallization_checked=True,
             crystallization_safe=True,
-            message=f"{label}: Unterhalb der üblichen Kristallisationsgrenze der verwendeten Korrelation.",
+            message=f"{label}: below the usual crystallization limit of the correlation used.",
         )
 
     w_crit = crystallization_limit("T", T)
@@ -1037,12 +803,12 @@ def validate_solution_state(T: float, w_libr: float, label: str = "") -> StateVa
 
     if safe:
         message = (
-            f"{label}: Kristallisationsprüfung bestanden "
+            f"{label}: crystallization check passed "
             f"(w_LiBr={w_libr:.4f} <= w_crit={w_crit:.4f}, T={T:.2f} K >= T_crit={T_crit:.2f} K)."
         )
     else:
         message = (
-            f"{label}: Kristallisationsrisiko "
+            f"{label}: crystallization risk "
             f"(w_LiBr={w_libr:.4f}, w_crit={w_crit:.4f}, T={T:.2f} K, T_crit={T_crit:.2f} K)."
         )
 

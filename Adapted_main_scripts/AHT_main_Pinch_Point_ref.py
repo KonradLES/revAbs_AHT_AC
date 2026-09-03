@@ -1,4 +1,4 @@
-"""Einstiegspunkt für die AWT-Simulation mit 8 primären Unbekannten.
+"""Einstiegspunkt für die AHT-Simulation mit 8 primären Unbekannten.
 
 Die Absorber-Spezifikation ist explizit wählbar:
 - ABSORBER_SPEC_MODE = "m11"  -> m11_spec vorgeben, T12 wird berechnet
@@ -22,11 +22,11 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 import numpy as np
 
 from Models.AHT_Pinch_Point import (
-    AWTInputs,
+    AHTInputs,
     primary_temperatures_C_to_K,
     print_summary,
     print_trace,
-    solve_awt,
+    solve_aht,
     trace_model,
 )
 from Postprocessing.AHT_QT_Plot import plot_qt_diagrams
@@ -37,10 +37,10 @@ from Postprocessing.AHT_Duehring_Plot import plot_duehring_operating_point
 # ----------------------------------------------------------------------------
 # Q-T-Diagramme (Pinch-Analyse) nach der Lösung erzeugen?
 ENABLE_QT_PLOT = True
-QT_PLOT_SAVE_PATH = "Postprocessing/Plots/AWT_QT_Diagramme.png"  # None, um nicht zu speichern
+QT_PLOT_SAVE_PATH = "Postprocessing/Plots/AHT_QT_Diagramme.png"  # None, um nicht zu speichern
 # Dühring-Diagramm mit eingezeichnetem Betriebspunkt nach der Lösung erzeugen?
 ENABLE_DUEHRING_PLOT = True
-DUEHRING_PLOT_SAVE_PATH = "Postprocessing/Plots/AWT_Duehring_Diagramm.png"  # None, um nicht zu speichern
+DUEHRING_PLOT_SAVE_PATH = "Postprocessing/Plots/AHT_Duehring_Diagramm.png"  # None, um nicht zu speichern
 DUEHRING_PLOT_VARIANT = "mass"  # "mass" oder "mole"
 # ----------------------------------------------------------------------------
 
@@ -64,7 +64,7 @@ DESORBER_EVAPORATOR_ROUTING_MODE = "parallel"
 # DESORBER_EVAPORATOR_ROUTING_MODE = "series_evaporator_to_desorber"
 
 
-def build_example_inputs() -> AWTInputs:
+def build_example_inputs() -> AHTInputs:
     common_kwargs = dict(
         T_11_C=135.0,   # 135, 60, 80
         T_17_C=30.0,   # 30, 20, 20
@@ -136,7 +136,7 @@ def build_example_inputs() -> AWTInputs:
             "'series_desorber_to_evaporator' oder 'series_evaporator_to_desorber' sein."
         )
 
-    return AWTInputs(
+    return AHTInputs(
         **common_kwargs,
         **spec_kwargs,
     )
@@ -168,7 +168,7 @@ if __name__ == "__main__":
     trace = trace_model(x0, inputs)
     #print_trace(trace)
 
-    result = solve_awt(inputs, x0=x0)
+    result = solve_aht(inputs, x0=x0)
     print_summary(result)
 
     if ENABLE_QT_PLOT:

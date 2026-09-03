@@ -1,54 +1,65 @@
-"""AWT-Simulation mit 7 primären Unbekannten.
+"""AC simulation with 6 primary unknowns (UA/LMTD formulation).
 
-Die Absorber-Spezifikation ist variabel:
-- absorber_spec_mode = "m11": m11_spec wird vorgegeben, T12 wird berechnet
-- absorber_spec_mode = "T12": T12_spec_C wird vorgegeben, m11 wird berechnet
+Unlike the pinch-point variant, the four main heat exchangers (desorber,
+condenser, evaporator, absorber) are specified by fixed UA values, and the
+residuals directly enforce Q - UA*LMTD = 0. The external mass flows m_11,
+m_13, m_15 (desorber, absorber, condenser) are fixed inputs.
 
-Die Kreislaufskalierung ist variabel:
-- cycle_scale_spec_mode = "m6": m6_spec wird vorgegeben
-- cycle_scale_spec_mode = "Qeva": Qeva_spec_kW wird vorgegeben, m6 wird berechnet
+SHEX modeling is variable:
+- shex_model = "UA": UA_shex is given, residual is Q - UA_shex*LMTD_shex
+- shex_model = "NTU": Effectiveness_shex is given, residual is
+  Q - Effectiveness_shex * Q_shex_max
 
-Modellannahmen
---------------
-- Arbeitsstoffpaar: H2O/LiBr
-- stationärer Betrieb
-- keine Druckverluste in Apparaten und Leitungen
-- isenthalpe Lösungsdrossel mit lokaler Flash-Berechnung
-- adiabate Vorabsorption vor dem Absorber wird explizit abgebildet
-- externe Fluide werden mit konstantem cp_w beschrieben
+External evaporator stream specification is variable:
+- evaporator_spec_mode = "m17": m17_spec is given, T18 is computed
+- evaporator_spec_mode = "T18": T18_spec_C is given, m17 is computed
 
-Primäre Solvervariablen
------------------------
+Cycle scaling is variable:
+- cycle_scale_spec_mode = "m1": m1_spec is given
+- cycle_scale_spec_mode = "Qeva": Qevap_spec_kW is given, m1 is computed
+
+Model assumptions
+------------------
+- working fluid pair: H2O/LiBr
+- steady-state operation
+- no pressure losses in components or piping
+- isenthalpic solution throttle with local flash calculation
+- adiabatic pre-absorption ahead of the absorber is modeled explicitly
+- external fluids are described with constant cp_w
+
+Primary solver variables
+-------------------------
 z = [T8, T10, x4, x1, T3, T5]
 
-Interne Einheiten
------------------
-- Temperatur: K
-- Druck: Pa
-- Massenstrom: kg/s
-- spezifische Enthalpie: kJ/kg
-- Wärmestrom / Leistung: kW (= kJ/s)
+Internal units
+--------------
+- temperature: K
+- pressure: Pa
+- mass flow: kg/s
+- specific enthalpy: kJ/kg
+- heat flow / power: kW (= kJ/s)
 - UA: kW/K
 
-Strategie für unphysikalische Zwischenzustände
-----------------------------------------------
-Der Solver (trf) besucht während der Iteration zwangsläufig Punkte, an denen
-Temperaturdifferenzen in Wärmeübertragern negativ werden.  Die strenge
-Endauswertung wirft dort eine ModelEvaluationError – das ist korrekt für die
-physikalische Bewertung des Endpunkts.
+Strategy for unphysical intermediate states
+--------------------------------------------
+During iteration, the solver (trf) inevitably visits points where
+temperature differences in heat exchangers become negative. The strict
+final evaluation raises a ModelEvaluationError there, which is correct
+for judging the physical validity of the final point.
 
-Für den Solver-Pfad verwendet diese Datei denselben Modellkern in einer
-robusten Variante:
-  - Identische Gleichungsstruktur wie die strenge Endauswertung
-  - counterflow_lmtd_soft statt counterflow_lmtd: gibt bei ΔT ≤ 0 den Wert
-    min(ΔT1, ΔT2) zurück statt eine Exception zu werfen
-  - Keine raises für negative Wärmeströme, negative Massenströme etc.
-  - Residuen Q - UA·LMTD_soft sind groß und korrekt vorzeichenbehaftet
-    → Solver erhält echtes Gradientensignal zurück in die physikalische Region
+For the solver path, this module evaluates the same model core in a
+robust variant:
+  - identical equation structure as the strict final evaluation
+  - counterflow_lmtd_soft instead of counterflow_lmtd: returns
+    min(dT1, dT2) instead of raising when dT <= 0
+  - no raises for negative heat flows, negative mass flows, etc.
+  - residuals Q - UA*LMTD_soft stay large and correctly signed,
+    so the solver gets a real gradient signal back toward the
+    physically valid region
 
-Diese robuste Variante hat dieselben Nullstellen wie die strenge Auswertung
-(LMTD_soft = LMTD wenn beide ΔT > 0), konvergiert also zur korrekten
-physikalischen Lösung.
+This robust variant has the same roots as the strict evaluation
+(LMTD_soft = LMTD when both dT > 0), so it converges to the same
+physical solution.
 """
 
 from __future__ import annotations
@@ -64,7 +75,7 @@ try:
     import CoolProp.CoolProp as CP
 except ImportError as exc:  # pragma: no cover
     raise ImportError(
-        "CoolProp ist nicht installiert. Installation z. B. mit `pip install CoolProp`."
+        "CoolProp is not installed. Install it e.g. with `pip install CoolProp`."
     ) from exc
 
 import Thermodynamic_Properties.libr_props as lp
@@ -93,7 +104,7 @@ def celsius_to_kelvin(T_C: float) -> float:
 def primary_temperatures_C_to_K(
     z_user: np.ndarray | list[float] | tuple[float, ...]
 ) -> np.ndarray:
-    """Konvertiert die Temperatur-Komponenten des primären Vektors von °C nach K."""
+    """Converts the temperature components of the primary vector from degC to K."""
     z_internal = np.asarray(z_user, dtype=float).copy()
     z_internal[list(PRIMARY_TEMPERATURE_INDICES)] += 273.15
     return z_internal
@@ -102,30 +113,30 @@ def primary_temperatures_C_to_K(
 def primary_temperatures_K_to_C(
     z_internal: np.ndarray | list[float] | tuple[float, ...]
 ) -> np.ndarray:
-    """Konvertiert die Temperatur-Komponenten des primären Vektors von K nach °C."""
+    """Converts the temperature components of the primary vector from K to degC."""
     z_user = np.asarray(z_internal, dtype=float).copy()
     z_user[list(PRIMARY_TEMPERATURE_INDICES)] -= 273.15
     return z_user
 
 
 # ---------------------------------------------------------------------------
-# Datenklassen
+# Data classes
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
-class AKMInputs:
-    # Externe Einlasstemperaturen [°C]
+class ACInputs:
+    # External inlet temperatures [degC]
     T_11_C: float
     T_13_C: float | None
     T_15_C: float | None
     T_17_C: float
 
-    # Externe Massenströme [kg/s]
+    # External mass flows [kg/s]
     m_11: float
     m_13: float
     m_15: float
 
-    # UA-Werte [kW/K]
+    # UA values [kW/K]
     UA_cond: float
     UA_evap: float
     UA_abs: float
@@ -135,36 +146,36 @@ class AKMInputs:
 
     _: KW_ONLY
 
-    # SHEX-Spezifikationsmodus:
-    # - "UA":  UA_shex wird verwendet (Default)
-    # - "NTU": shex_effectiveness wird verwendet
+    # SHEX specification mode:
+    # - "UA":  UA_shex is used (default)
+    # - "NTU": shex_effectiveness is used
     shex_model: str = "UA"
 
-    # Externe Wärmesenken/-quellen von Desorber und Verdampfer:
-    # - "parallel": Standardfall mit separater T_13- und T_15-Vorgabe
-    # - "series_absorber_to_condenser": intern gilt T15 = T14
-    # - "series_condenser_to_absorber": intern gilt T13 = T16
+    # External heat sink/source routing of desorber and evaporator:
+    # - "parallel": default case with separate T_13 and T_15 given
+    # - "series_absorber_to_condenser": internally T15 = T14
+    # - "series_condenser_to_absorber": internally T13 = T16
     absorber_condenser_routing_mode: str = "parallel"
 
-    # Spezifikation der Kreislaufskalierung:
-    # - "m1": m1_spec wird vorgegeben
-    # - "Qevap": Qevap_spec_kW wird vorgegeben, m1 wird berechnet
+    # Cycle scaling specification:
+    # - "m1": m1_spec is given
+    # - "Qevap": Qevap_spec_kW is given, m1 is computed
     cycle_scale_spec_mode: str = "m1"
     m1_spec: float | None = None
     Qevap_spec_kW: float | None = None
 
-    # Spezifikation des externen Absorberstroms:
-    # - "m17": m17_spec wird vorgegeben, T18 wird berechnet
-    # - "T18": T18_spec_C wird vorgegeben, m17 wird berechnet
+    # External evaporator stream specification:
+    # - "m17": m17_spec is given, T18 is computed
+    # - "T18": T18_spec_C is given, m17 is computed
     evaporator_spec_mode: str = "m17"
     m17_spec: float | None = None
     T18_spec_C: float | None = None
 
-    # Externe Fluide: Wasser
+    # External fluid: water
     cp_w_kJkgK: float = 4.2
 
-    # Desorberaustritt des Kältemitteldampfes
-    # Default: gesättigter Dampf auf low-pressure-Niveau
+    # Desorber vapor outlet: default is saturated vapor at the
+    # low-pressure level
     desorber_vapor_superheat_K: float = 0.0
 
     # Solver
@@ -179,102 +190,102 @@ class AKMInputs:
             "series_condenser_to_absorber",
         }:
             raise ValueError(
-                "absorber_condenser_routing_mode muss 'parallel', "
-                "'series_absorber_to_condenser' oder 'series_condenser_to_absorber' sein."
+                "absorber_condenser_routing_mode must be 'parallel', "
+                "'series_absorber_to_condenser', or 'series_condenser_to_absorber'."
             )
 
         if self.absorber_condenser_routing_mode == "parallel":
             if self.T_13_C is None:
                 raise ValueError(
-                    "Bei absorber_condenser_routing_mode='parallel' muss T_13_C vorgegeben werden."
+                    "For absorber_condenser_routing_mode='parallel', T_13_C must be given."
                 )
             if self.T_15_C is None:
                 raise ValueError(
-                    "Bei absorber_condenser_routing_mode='parallel' muss T_15_C vorgegeben werden."
+                    "For absorber_condenser_routing_mode='parallel', T_15_C must be given."
                 )
         elif self.absorber_condenser_routing_mode == "series_absorber_to_condenser":
             if self.T_13_C is None:
                 raise ValueError(
-                    "Bei absorber_condenser_routing_mode='series_absorber_to_condenser' muss "
-                    "T_13_C vorgegeben werden."
+                    "For absorber_condenser_routing_mode='series_absorber_to_condenser', "
+                    "T_13_C must be given."
                 )
             if self.T_15_C is not None:
                 raise ValueError(
-                    "Bei absorber_condenser_routing_mode='series_absorber_to_condenser' darf T_15_C "
-                    "nicht gesetzt sein; es gilt intern T15 = T14."
+                    "For absorber_condenser_routing_mode='series_absorber_to_condenser', T_15_C "
+                    "must not be set; internally T15 = T14."
                 )
         else:
             if self.T_15_C is None:
                 raise ValueError(
-                    "Bei absorber_condenser_routing_mode='series_condenser_to_absorber' muss "
-                    "T_15_C vorgegeben werden; es gilt intern T13 = T16."
+                    "For absorber_condenser_routing_mode='series_condenser_to_absorber', "
+                    "T_15_C must be given; internally T13 = T16."
                 )
             if self.T_13_C is not None:
                 raise ValueError(
-                    "Bei absorber_condenser_routing_mode='series_condenser_to_absorber' darf T_13_C "
-                    "nicht gesetzt sein; es gilt intern T13 = T16."
+                    "For absorber_condenser_routing_mode='series_condenser_to_absorber', T_13_C "
+                    "must not be set; internally T13 = T16."
                 )
 
         if self.cycle_scale_spec_mode not in {"m1", "Qeva"}:
-            raise ValueError("cycle_scale_spec_mode muss 'm1' oder 'Qeva' sein.")
+            raise ValueError("cycle_scale_spec_mode must be 'm1' or 'Qeva'.")
         if self.cycle_scale_spec_mode == "m1":
             if self.m1_spec is None:
-                raise ValueError("Bei cycle_scale_spec_mode='m1' muss m1_spec vorgegeben werden.")
+                raise ValueError("For cycle_scale_spec_mode='m1', m1_spec must be given.")
             if self.Qevap_spec_kW is not None:
                 raise ValueError(
-                    "Bei cycle_scale_spec_mode='m1' darf Qeva_spec_kW nicht gesetzt sein."
+                    "For cycle_scale_spec_mode='m1', Qeva_spec_kW must not be set."
                 )
             if self.m1_spec <= 0.0:
-                raise ValueError("Bei cycle_scale_spec_mode='m1' muss m1_spec > 0 gelten.")
+                raise ValueError("For cycle_scale_spec_mode='m1', m1_spec > 0 must hold.")
         else:
             if self.Qevap_spec_kW is None:
                 raise ValueError(
-                    "Bei cycle_scale_spec_mode='Qeva' muss Qeva_spec_kW vorgegeben werden."
+                    "For cycle_scale_spec_mode='Qeva', Qeva_spec_kW must be given."
                 )
             if self.m1_spec is not None:
                 raise ValueError(
-                    "Bei cycle_scale_spec_mode='Qeva' darf m1_spec nicht gesetzt sein."
+                    "For cycle_scale_spec_mode='Qeva', m1_spec must not be set."
                 )
             if self.Qevap_spec_kW <= 0.0:
-                raise ValueError("Bei cycle_scale_spec_mode='Qeva' muss Qeva_spec_kW > 0 gelten.")
+                raise ValueError("For cycle_scale_spec_mode='Qeva', Qeva_spec_kW > 0 must hold.")
 
         if self.evaporator_spec_mode not in {"m17", "T18"}:
-            raise ValueError("evaporator_spec_mode muss 'm17' oder 'T18' sein.")
+            raise ValueError("evaporator_spec_mode must be 'm17' or 'T18'.")
         if self.evaporator_spec_mode == "m17":
             if self.m17_spec is None:
-                raise ValueError("Bei evaporator_spec_mode='m17' muss m17_spec vorgegeben werden.")
+                raise ValueError("For evaporator_spec_mode='m17', m17_spec must be given.")
             if self.T18_spec_C is not None:
                 raise ValueError(
-                    "Bei evaporator_spec_mode='m17' darf T18_spec_C nicht gesetzt sein."
+                    "For evaporator_spec_mode='m17', T18_spec_C must not be set."
                 )
             if self.m17_spec <= 0.0:
-                raise ValueError("Bei evaporator_spec_mode='m17' muss m17_spec > 0 gelten.")
+                raise ValueError("For evaporator_spec_mode='m17', m17_spec > 0 must hold.")
         else:
             if self.T18_spec_C is None:
-                raise ValueError("Bei evaporator_spec_mode='T18' muss T18_spec_C vorgegeben werden.")
+                raise ValueError("For evaporator_spec_mode='T18', T18_spec_C must be given.")
             if self.m17_spec is not None:
                 raise ValueError(
-                    "Bei evaporator_spec_mode='T18' darf m17_spec nicht gesetzt sein."
+                    "For evaporator_spec_mode='T18', m17_spec must not be set."
                 )
             if self.T18_spec_C >= self.T_17_C:
                 raise ValueError(
-                    "Bei evaporator_spec_mode='T18' muss T18_spec_C < T_17_C gelten."
+                    "For evaporator_spec_mode='T18', T18_spec_C < T_17_C must hold."
                 )
         if self.shex_model not in {"UA", "NTU"}:
-            raise ValueError("shex_model muss 'UA' oder 'NTU' sein.")
+            raise ValueError("shex_model must be 'UA' or 'NTU'.")
         if self.shex_model == "UA":
             if self.UA_shex is None:
-                raise ValueError("Bei shex_model='UA' muss UA_shex vorgegeben werden.")
+                raise ValueError("For shex_model='UA', UA_shex must be given.")
             if self.UA_shex <= 0.0:
-                raise ValueError("Bei shex_model='UA' muss UA > 0 gelten.")
+                raise ValueError("For shex_model='UA', UA > 0 must hold.")
         else:
             if self.Effectiveness_shex is None:
-                raise ValueError("Bei shex_model='NTU' muss Effectiveness_shex vorgegeben werden.")
+                raise ValueError("For shex_model='NTU', Effectiveness_shex must be given.")
             if self.UA_shex is not None:
                 raise ValueError(
-                    "Bei Effectiveness_shex='NTU' darf UA_shex nicht gesetzt sein."
+                    "For shex_model='NTU', UA_shex must not be set."
                 )
-            
+
     @property
     def T_17(self) -> float:
         return celsius_to_kelvin(self.T_17_C)
@@ -282,14 +293,14 @@ class AKMInputs:
     @property
     def T18_spec(self) -> float:
         if self.T18_spec_C is None:
-            raise AttributeError("T18_spec_C ist für diese Spezifikation nicht gesetzt.")
+            raise AttributeError("T18_spec_C is not set for this specification.")
         return celsius_to_kelvin(self.T18_spec_C)
 
     @property
     def T_13(self) -> float:
         if self.T_13_C is None:
             raise AttributeError(
-                "T_13_C ist für die gewählte Routing-Variante nicht gesetzt."
+                "T_13_C is not set for the chosen routing mode."
             )
         return celsius_to_kelvin(self.T_13_C)
 
@@ -297,7 +308,7 @@ class AKMInputs:
     def T_15(self) -> float:
         if self.T_15_C is None:
             raise AttributeError(
-                "T_15_C ist für die gewählte Routing-Variante nicht gesetzt."
+                "T_15_C is not set for the chosen routing mode."
             )
         return celsius_to_kelvin(self.T_15_C)
 
@@ -322,14 +333,14 @@ class AKMInputs:
 
     @property
     def condenser_temperature_reference(self) -> float:
-        """Referenztemperatur für Startwerte und Schranken des Kondensators."""
+        """Reference temperature for initial guesses and bounds of the condenser."""
         if self.uses_serial_absorber_to_condenser_routing:
             return self.T_13
         return self.T_15
 
     @property
     def absorber_temperature_reference(self) -> float:
-        """Referenztemperatur für Startwerte und Schranken des Absorbers."""
+        """Reference temperature for initial guesses and bounds of the absorber."""
         if self.uses_serial_condenser_to_absorber_routing:
             return self.T_15
         return self.T_13
@@ -366,8 +377,8 @@ class ModelEvaluation:
 
 
 @dataclass(frozen=True)
-class AWTResult:
-    inputs: AKMInputs
+class ACResult:
+    inputs: ACInputs
     solve_info: SolveInfo
     primary_variables: Dict[str, float]
     states: Dict[str, Dict[str, float]]
@@ -393,11 +404,11 @@ class ModelTrace:
     error_message: str | None
 
 class ModelEvaluationError(RuntimeError):
-    """Interner Fehler bei der Modellbewertung."""
+    """Internal error during model evaluation."""
 
 
 # ---------------------------------------------------------------------------
-# Wasser-Stofffunktionen (CoolProp-Wrapper)
+# Water property functions (CoolProp wrapper)
 # ---------------------------------------------------------------------------
 
 def water_h_kjkg_PT(P_pa: float, T_K: float) -> float:
@@ -425,15 +436,15 @@ def water_rho_kgm3_PQ(P_pa: float, Q: float) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Allgemeine Hilfsfunktionen
+# General helper functions
 # ---------------------------------------------------------------------------
 
 def lmtd(delta_T_1: float, delta_T_2: float) -> float:
-    """Strenge LMTD: wirft ModelEvaluationError für ΔT ≤ 0."""
+    """Strict LMTD: raises ModelEvaluationError for dT <= 0."""
     if delta_T_1 <= 0.0 or delta_T_2 <= 0.0:
         raise ModelEvaluationError(
-            f"LMTD undefiniert, weil delta_T_1={delta_T_1:.6f} K oder"
-            f" delta_T_2={delta_T_2:.6f} K nicht positiv ist."
+            f"LMTD undefined because delta_T_1={delta_T_1:.6f} K or"
+            f" delta_T_2={delta_T_2:.6f} K is not positive."
         )
     if math.isclose(delta_T_1, delta_T_2, rel_tol=1.0e-10, abs_tol=1.0e-10):
         return 0.5 * (delta_T_1 + delta_T_2)
@@ -441,19 +452,18 @@ def lmtd(delta_T_1: float, delta_T_2: float) -> float:
 
 
 def lmtd_soft(delta_T_1: float, delta_T_2: float) -> float:
-    """Robuste LMTD für den Solver-Pfad.
+    """Robust LMTD for the solver path.
 
-    Bei ΔT > 0: identisch mit lmtd().
-    Bei ΔT ≤ 0: gibt min(ΔT1, ΔT2) zurück (negativ / null).
+    For dT > 0: identical to lmtd().
+    For dT <= 0: returns min(dT1, dT2) (negative/zero).
 
-    Dadurch bleibt das Residuum Q - UA·LMTD_soft überall definiert und
-    kontinuierlich.  Bei negativen Temperaturdifferenzen wird LMTD_soft
-    negativ → Q - UA·(negativ) = Q + |UA·LMTD| ist groß und positiv →
-    ||R||² steigt → der Solver erhält das richtige Gradientensignal zurück
-    in die physikalisch gültige Region.
+    This keeps the residual Q - UA*LMTD_soft defined and continuous
+    everywhere. Negative dT drives LMTD_soft negative, so the residual
+    grows large and positive, giving the solver a real gradient signal
+    back toward the physically valid region.
 
-    Dieselben Nullstellen wie lmtd(): solange die Lösung physikalisch ist
-    (ΔT > 0), sind lmtd() = lmtd_soft() → keine Verschiebung der Lösung.
+    Same roots as lmtd(): whenever the solution is physical (dT > 0),
+    lmtd() == lmtd_soft(), so the solution itself is unaffected.
     """
     if delta_T_1 <= 0.0 or delta_T_2 <= 0.0:
         return min(delta_T_1, delta_T_2)
@@ -472,28 +482,28 @@ def counterflow_lmtd_soft(hot_in: float, hot_out: float, cold_in: float, cold_ou
 
 def heating_outlet_temperature(T_in: float, Q_kW: float, m_kg_s: float, cp_kJkgK: float) -> float:
     if m_kg_s <= 0.0 or cp_kJkgK <= 0.0:
-        raise ModelEvaluationError("Externer Wärmekapazitätsstrom muss positiv sein.")
+        raise ModelEvaluationError("External heat capacity flow rate must be positive.")
     return T_in + Q_kW / (m_kg_s * cp_kJkgK)
 
 
 def cooling_outlet_temperature(T_in: float, Q_kW: float, m_kg_s: float, cp_kJkgK: float) -> float:
     if m_kg_s <= 0.0 or cp_kJkgK <= 0.0:
-        raise ModelEvaluationError("Externer Wärmekapazitätsstrom muss positiv sein.")
+        raise ModelEvaluationError("External heat capacity flow rate must be positive.")
     return T_in - Q_kW / (m_kg_s * cp_kJkgK)
 
 def water_throttle_state(p_out_pa: float, h_in_kJkg: float) -> Dict[str, float]:
-    """Isenthalpe Drossel für reines Kältemittel (Wasser), Kondensator -> Verdampfer.
- 
-    Im Gegensatz zur Lösungsdrossel (LiBr/H2O, siehe lp.flash_valve_state_5_to_6)
-    ist hier keine Mischungsrechnung nötig: es handelt sich um reines Wasser,
-    daher genügt eine einfache Dampfgehalts-Berechnung bei p_out_pa.
+    """Isenthalpic throttle for the pure refrigerant (water), condenser -> evaporator.
+
+    Unlike the solution throttle (LiBr/H2O, see lp.flash_valve_state_5_to_6),
+    no mixture calculation is needed here: since this is pure water, a simple
+    vapor-quality calculation at p_out_pa suffices.
     """
     h_f = water_h_kjkg_PQ(p_out_pa, Q=0.0)
     h_g = water_h_kjkg_PQ(p_out_pa, Q=1.0)
     T_sat = water_T_sat_from_p(p_out_pa, Q=0.0)
- 
+
     if h_g <= h_f:
-        # Entartungsfall (numerisch), sollte praktisch nicht auftreten
+        # degenerate case (numerical), should not occur in practice
         return {"T9_K": T_sat, "q9": 0.0, "h9_kJ_kg": h_in_kJkg}
  
     if h_in_kJkg <= h_f:
@@ -513,7 +523,7 @@ def _penalty_vector(size: int, level: float) -> np.ndarray:
 
 
 def _residual_scales(m1: float) -> np.ndarray:
-    """Skalierung der sieben energetischen Residuen [kW]."""
+    """Scaling of the six energetic residuals [kW]."""
     return np.array(
         [100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
         dtype=float,
@@ -563,13 +573,13 @@ def _calculate_kpis(
 
 
 def _resolve_cycle_scale(
-    inputs: AKMInputs, *, w4: float, w1: float, h9: float, h10: float, strict: bool
+    inputs: ACInputs, *, w4: float, w1: float, h9: float, h10: float, strict: bool
 ) -> float:
-    """Löst die Kreislaufskalierung auf den gepumpten Lösungsmassenstrom m1 auf."""
+    """Resolves the cycle scaling to the pumped solution mass flow m1."""
     if inputs.cycle_scale_spec_mode == "m1":
-        m1 = float(inputs.m1_spec)  # durch __post_init__ abgesichert
+        m1 = float(inputs.m1_spec)  # guaranteed by __post_init__
         if strict and m1 <= 0.0:
-            raise ModelEvaluationError("Gepumpter Lösungsmassenstrom m1 muss positiv sein.")
+            raise ModelEvaluationError("Pumped solution mass flow m1 must be positive.")
         return m1
 
     w4_balance = w4 if strict else max(w4, 1.0e-9)
@@ -579,12 +589,12 @@ def _resolve_cycle_scale(
     if strict:
         if abs(denominator) <= 1.0e-12:
             raise ModelEvaluationError(
-                "Kreislaufskalierung aus Q_eva nicht möglich, weil der Nenner nahezu null ist."
+                "Cannot resolve cycle scaling from Q_eva because the denominator is near zero."
             )
         m1 = float(inputs.Qevap_spec_kW) / denominator
         if m1 <= 0.0:
             raise ModelEvaluationError(
-                f"Berechneter Lösungsmassenstrom m1 nicht positiv: m1={m1:.6f} kg/s."
+                f"Computed solution mass flow m1 is not positive: m1={m1:.6f} kg/s."
             )
         return m1
 
@@ -595,16 +605,16 @@ def _resolve_cycle_scale(
 
 
 def _resolve_evaporator_external_stream(
-    inputs: AKMInputs, Q_evap: float, *, strict: bool
+    inputs: ACInputs, Q_evap: float, *, strict: bool
 ) -> tuple[float, float]:
-    """Löst die Verdampfer-Spezifikation auf interne Arbeitsgrößen auf.
+    """Resolves the evaporator specification to internal working quantities.
 
-    Rückgabe
-    --------
+    Returns
+    -------
     (m17, T18)
     """
     if inputs.evaporator_spec_mode == "m17":
-        m17 = float(inputs.m17_spec)  # durch __post_init__ abgesichert
+        m17 = float(inputs.m17_spec)  # guaranteed by __post_init__
         if strict:
             T18 = cooling_outlet_temperature(inputs.T_17, Q_evap, m17, inputs.cp_w_kJkgK)
         else:
@@ -616,48 +626,48 @@ def _resolve_evaporator_external_stream(
     if strict:
         if delta_T <= 0.0:
             raise ModelEvaluationError(
-                "Für evaporator_spec_mode='T18' muss T17 > T18 gelten."
+                "For evaporator_spec_mode='T18', T17 > T18 must hold."
             )
         if inputs.cp_w_kJkgK <= 0.0:
-            raise ModelEvaluationError("Externer Wärmekapazitätsstrom muss positiv sein.")
+            raise ModelEvaluationError("External heat capacity flow rate must be positive.")
     m17 = Q_evap / (inputs.cp_w_kJkgK * delta_T)
     return m17, T18
 
 
-def _resolve_condenser_external_inlet_temperature(inputs: AKMInputs, T14: float | None = None) -> float:
-    """Löst die externe Kondensatoreinlasstemperatur auf.
+def _resolve_condenser_external_inlet_temperature(inputs: ACInputs, T14: float | None = None) -> float:
+    """Resolves the external condenser inlet temperature.
 
-    - parallel: T15 wird aus den Inputs gelesen
-    - series_absorber_to_condenser: T15 entspricht dem externen Absorberaustritt T14
-    - series_condenser_to_absorber: T15 bleibt externer Input
+    - parallel: T15 is read from the inputs
+    - series_absorber_to_condenser: T15 equals the external absorber outlet T14
+    - series_condenser_to_absorber: T15 stays an external input
     """
     if inputs.uses_serial_absorber_to_condenser_routing:
         if T14 is None:
-            raise ModelEvaluationError("Für series_absorber_to_condenser muss T14 bekannt sein.")
+            raise ModelEvaluationError("T14 must be known for series_absorber_to_condenser.")
         return T14
     return inputs.T_15
 
 
-def _resolve_absorber_external_inlet_temperature(inputs: AKMInputs, T16: float | None = None) -> float:
-    """Löst die externe Absorbereinlasstemperatur auf.
+def _resolve_absorber_external_inlet_temperature(inputs: ACInputs, T16: float | None = None) -> float:
+    """Resolves the external absorber inlet temperature.
 
-    - parallel: T13 wird aus den Inputs gelesen
-    - series_absorber_to_condenser: T13 bleibt externer Input
-    - series_condenser_to_absorber: T13 entspricht dem externen Kondensatoraustritt T16
+    - parallel: T13 is read from the inputs
+    - series_absorber_to_condenser: T13 stays an external input
+    - series_condenser_to_absorber: T13 equals the external condenser outlet T16
     """
     if inputs.uses_serial_condenser_to_absorber_routing:
         if T16 is None:
-            raise ModelEvaluationError("Für series_condenser_to_absorber muss T16 bekannt sein.")
+            raise ModelEvaluationError("T16 must be known for series_condenser_to_absorber.")
         return T16
     return inputs.T_13
 
 
 # ---------------------------------------------------------------------------
-# Solver-Hilfsfunktionen
+# Solver helper functions
 # ---------------------------------------------------------------------------
 
-def initial_guess(inputs: AKMInputs) -> np.ndarray:
-    """Heuristische Startwerte für den 6-dimensionalen Solvervektor."""
+def initial_guess(inputs: ACInputs) -> np.ndarray:
+    """Heuristic initial guess for the 6-dimensional solver vector."""
     T_cond_ref = inputs.condenser_temperature_reference
     T_abs_ref = inputs.absorber_temperature_reference
     return np.array(
@@ -673,7 +683,7 @@ def initial_guess(inputs: AKMInputs) -> np.ndarray:
     )
 
 
-def bounds(inputs: AKMInputs) -> Tuple[np.ndarray, np.ndarray]:
+def bounds(inputs: ACInputs) -> Tuple[np.ndarray, np.ndarray]:
     T_cond_ref = inputs.condenser_temperature_reference
     T_abs_ref = inputs.absorber_temperature_reference
     lower = np.array(
@@ -691,10 +701,10 @@ def bounds(inputs: AKMInputs) -> Tuple[np.ndarray, np.ndarray]:
         [
             min(inputs.T_11 - 1.0, 420.0),   # T8
             min(inputs.T_17 + 0.5, 500.0),   # T10
-            0.39,                           # x3
-            0.34,                           # x6
-            500.0,                          # T2
-            500.0,                          # T4
+            0.39,                           # x4
+            0.34,                           # x1
+            500.0,                          # T3
+            500.0,                          # T5
         ],
         dtype=float,
     )
@@ -703,11 +713,11 @@ def bounds(inputs: AKMInputs) -> Tuple[np.ndarray, np.ndarray]:
 
 
 # ---------------------------------------------------------------------------
-# Gemeinsamer Modellkern (streng für Endauswertung, robust für Solver-Pfad)
+# Shared model core (strict for final evaluation, robust for solver path)
 # ---------------------------------------------------------------------------
 
 class _SoftResidualVector(RuntimeError):
-    """Interne Ausnahme: robuster Residuenvektor steht bereits fest."""
+    """Internal exception: the robust residual vector is already determined."""
 
     def __init__(self, residuals_scaled: np.ndarray):
         super().__init__("Soft residual vector ready.")
@@ -726,25 +736,25 @@ def _scaled_residual_array(model: ModelEvaluation) -> np.ndarray:
     return np.array([model.residuals_scaled[name] for name in RESIDUAL_NAMES], dtype=float)
 
 
-def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) -> ModelEvaluation:
-    """Gemeinsamer Modellkern für strikte Endauswertung und robusten Solver-Pfad.
+def _evaluate_model_common(z: np.ndarray, inputs: ACInputs, *, strict: bool) -> ModelEvaluation:
+    """Shared model core for the strict final evaluation and the robust solver path.
 
     strict=True:
-        - identisches Verhalten wie die bisherige evaluate_model()-Funktion
-        - wirft ModelEvaluationError für unphysikalische Zustände
+        - identical behavior to the former evaluate_model() function
+        - raises ModelEvaluationError for unphysical states
 
     strict=False:
-        - identische Gleichungsstruktur
-        - robuste Varianten nur dort, wo sie für den Solver-Pfad nötig sind
-        - keine Raises für negative Wärmeströme / Massenströme
-        - counterflow_lmtd_soft statt counterflow_lmtd
-        - Fallbacks für T5 und T1
-        - bei fundamentaler Druckverletzung p_high <= p_low direkter Residuenvektor
+        - identical equation structure
+        - robust variants only where needed for the solver path
+        - no raises for negative heat flows / mass flows
+        - counterflow_lmtd_soft instead of counterflow_lmtd
+        - fallback for T2
+        - direct residual vector on a fundamental pressure violation p_high <= p_low
     """
     T8, T10, x4, x1, T3, T5 = map(float, z)
 
     # ------------------------------------------------------------------
-    # 1) Druckniveaus des Kältemittels
+    # 1) Refrigerant pressure levels
     # ------------------------------------------------------------------
     p_low = water_p_sat_from_T(T10, Q=1.0)
     p_high = water_p_sat_from_T(T8, Q=0.0)
@@ -755,7 +765,7 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
         raise _SoftResidualVector(np.full(len(RESIDUAL_NAMES), pen, dtype=float))
 
     # ------------------------------------------------------------------
-    # 2) Gesättigte Lösungszustände, Konzentrationen und frühe Stoffgrößen
+    # 2) Saturated solution states, concentrations, and early property values
     # ------------------------------------------------------------------
     T1 = lp.T_sat_solution_from_p_x(p_low, x1)
     T4 = lp.T_sat_solution_from_p_x(p_high, x4)
@@ -765,7 +775,7 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
 
     if strict and not (w4 > w1 > 0.0):
         raise ModelEvaluationError(
-            f"Konzentrationshierarchie verletzt: w4={w4:.6f}, w1={w1:.6f}. Erwartet wird w4 > w1."
+            f"Concentration hierarchy violated: w4={w4:.6f}, w1={w1:.6f}. Expected w4 > w1."
         )
 
     h3 = lp.h_solution_mass_kjkg(T3, x1)
@@ -776,7 +786,7 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
     h10 = water_h_kjkg_PQ(p_low, Q=1.0)
 
     # ------------------------------------------------------------------
-    # 9) Drossel 8 -> 9
+    # 9) Throttle 8 -> 9
     # ------------------------------------------------------------------
     h9 = h8
     refrigerant_throttle = water_throttle_state(p_low, h9)
@@ -784,24 +794,24 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
     q9 = refrigerant_throttle["q9"]
 
     # ------------------------------------------------------------------
-    # 3) Kreislaufskalierung und Massenströme
+    # 3) Cycle scaling and mass flows
     # ------------------------------------------------------------------
     m1 = _resolve_cycle_scale(inputs, w4=w4, w1=w1, h9=h9, h10=h10, strict=strict)
-    m2 = m3 = m1 
+    m2 = m3 = m1
     w4_for_balance = w4 if strict else max(w4, 1.0e-9)
     m4 = m3 * w1 / w4_for_balance
-    m5 = m6 = m4 
+    m5 = m6 = m4
     m7 = m8 = m9 = m10 = m1 - m4
 
     if strict and m7 <= 0.0:
-        raise ModelEvaluationError(f"Kältemittelmassenstrom nicht positiv: m7={m7:.6f} kg/s.")
+        raise ModelEvaluationError(f"Refrigerant mass flow not positive: m7={m7:.6f} kg/s.")
 
     if strict:
         if m10 <= 0.0:
-            raise ModelEvaluationError(f"m10 nicht positiv: m10={m10:.6f} kg/s.")
+            raise ModelEvaluationError(f"m10 not positive: m10={m10:.6f} kg/s.")
 
     # ------------------------------------------------------------------
-    # 4) Lösungsenthalpien und Lösungspumpe 1 -> 2
+    # 4) Solution enthalpies and solution pump 1 -> 2
     # ------------------------------------------------------------------
     h5 = lp.h_solution_mass_kjkg(T5, x4)
     h1 = lp.h_solution_mass_kjkg(T1, x1)
@@ -819,27 +829,27 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
             T2 = T1
 
     # ------------------------------------------------------------------
-    # 5) Lösungswärmeübertrager (SHEX): 3 -> 2 und 5 -> 4
+    # 5) Solution heat exchanger (SHEX): 3 -> 2 and 5 -> 4
     # ------------------------------------------------------------------
     Q_shex_hot = m4 * (h4 - h5)
     Q_shex_cold = m1 * (h3 - h2)
     if strict and Q_shex_hot <= 0.0:
-        raise ModelEvaluationError(f"Q_shex_hot nicht positiv: {Q_shex_hot:.6f} kW.")
+        raise ModelEvaluationError(f"Q_shex_hot not positive: {Q_shex_hot:.6f} kW.")
     if strict and Q_shex_cold <= 0.0:
-        raise ModelEvaluationError(f"Q_shex_cold nicht positiv: {Q_shex_cold:.6f} kW.")
+        raise ModelEvaluationError(f"Q_shex_cold not positive: {Q_shex_cold:.6f} kW.")
     Q_shex = Q_shex_hot
 
-    # LMTD wird unabhängig vom Spezifikationsmodus berechnet, da T2..T5 immer bekannt sind
+    # LMTD is computed independently of the specification mode, since T2..T5 are always known
     lmtd_shex = _counterflow_lmtd_mode(
         strict=strict, hot_in=T4, hot_out=T5, cold_in=T2, cold_out=T3
     )
 
-    # SHEX: Wärmeübertragungsresiduum (R2) je nach Spezifikationsmodus
+    # SHEX: heat-transfer residual (R2) depending on the specification mode
     if inputs.shex_model == "UA":
         R2_shex = Q_shex - inputs.UA_shex * lmtd_shex
         UA_shex_calc = inputs.UA_shex
     else:
-        # Effektivitäts-NTU-Methode
+        # effectiveness-NTU method
         C23 = (h2 - h3) / (T2 - T3) if abs(T2 - T3) > 1.0e-12 else float("nan")
         C45 = (h4 - h5) / (T4 - T5) if abs(T4 - T5) > 1.0e-12 else float("nan")
         C2_3 = m1 * C23
@@ -847,20 +857,20 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
         C_min = min(C2_3, C4_5)
         Q_shex_max = C_min * (T4 - T2)
         R2_shex = Q_shex - inputs.Effectiveness_shex * Q_shex_max
-        # UA aus LMTD zurückgerechnet (nur informativ, geht nicht in die Residuen ein)
+        # UA back-calculated from LMTD (informational only, not part of the residuals)
         if strict and lmtd_shex <= 0.0:
             raise ModelEvaluationError(
-                f"LMTD_shex nicht positiv, UA-Rückrechnung nicht möglich: {lmtd_shex:.6f} K."
+                f"LMTD_shex not positive, cannot back-calculate UA: {lmtd_shex:.6f} K."
             )
         UA_shex_calc = Q_shex / lmtd_shex if lmtd_shex > 0.0 else float("nan")
 
-    # Pinch-Residuum SHEX: kleinster Temperaturabstand = dT_min_shex
-    dT_shex_hot_end  = T4 - T3   # heiß ein  / kalt aus
-    dT_shex_cold_end = T5 - T2   # heiß aus  / kalt ein
+    # SHEX pinch residual: smallest temperature gap = dT_min_shex
+    dT_shex_hot_end  = T4 - T3   # hot in  / cold out
+    dT_shex_cold_end = T5 - T2   # hot out / cold in
     pinch_shex = min(dT_shex_hot_end, dT_shex_cold_end)
 
     # ------------------------------------------------------------------
-    # 6) Drossel 5 -> 6 (isenthalp, T6 aus Flash-Drossel)
+    # 6) Throttle 5 -> 6 (isenthalpic, T6 from flash throttle)
     # ------------------------------------------------------------------
     h6 = h5
     if strict:
@@ -896,51 +906,51 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
     flash_outputs = {key: float(value) for key, value in flash.items()}
 
     # ------------------------------------------------------------------
-    # 7) Kältemitteldampfpfad 7 sowie externe Heißseite von Desorber/Verdampfer
+    # 7) Refrigerant vapor path 7, and external hot side of desorber/evaporator
     # ------------------------------------------------------------------
     Q_des = - m1 * h3 + m7 * h7 + m4 * h4
     if strict and Q_des <= 0.0:
-        raise ModelEvaluationError(f"Desorberwärmestrom nicht positiv: Q_des={Q_des:.6f} kW.")
+        raise ModelEvaluationError(f"Desorber heat flow not positive: Q_des={Q_des:.6f} kW.")
 
     if strict:
         T12 = cooling_outlet_temperature(inputs.T_11, Q_des, inputs.m_11, inputs.cp_w_kJkgK)
     else:
         T12 = inputs.T_11 - Q_des / (inputs.m_11 * inputs.cp_w_kJkgK)
-    
+
     lmtd_des = _counterflow_lmtd_mode(
         strict=strict, hot_in=inputs.T_11, hot_out=T12, cold_in=T7, cold_out=T4
     )
 
-    # Pinch Desorber: min beider Enden
-    dT_des_hot_end  = inputs.T_11 - T4          # heiß ein / kalt aus
-    dT_des_cold_end = T12  - T7  # heiß aus / kalt ein
+    # Desorber pinch: min of both ends
+    dT_des_hot_end  = inputs.T_11 - T4          # hot in / cold out
+    dT_des_cold_end = T12  - T7  # hot out / cold in
     pinch_des  = min(dT_des_hot_end,  dT_des_cold_end)
 
     # ------------------------------------------------------------------
-    # 10) Verdampfer 9 -> 10 und gekoppelte externe Heißseite
+    # 10) Evaporator 9 -> 10 and coupled external hot side
     # ------------------------------------------------------------------
     Q_evap = m9 * (h10 - h9)
     if strict and Q_evap <= 0.0:
-        raise ModelEvaluationError(f"Verdampferwärmestrom nicht positiv: Q_evap={Q_evap:.6f} kW.")
+        raise ModelEvaluationError(f"Evaporator heat flow not positive: Q_evap={Q_evap:.6f} kW.")
     m17, T18 = _resolve_evaporator_external_stream(inputs, Q_evap, strict=strict)
 
     lmtd_evap = _counterflow_lmtd_mode(
         strict=strict, hot_in=inputs.T_17, hot_out=T18, cold_in=T9, cold_out=T10
     )
 
-    # Wärmeanteil für die Unterkühlung:
+    # Heat share for subcooling:
     h_f_high = water_h_kjkg_PQ(p_high, Q=0.0)
 
     Q_subcool = m9 * (h_f_high - h9)
     Q_subcool = max(0.0, min(Q_subcool, Q_evap))
 
-    # Nutzkälte-Rücklauftemperatur am Übergang
-    # Unterkühlung -> Verdampfung
+    # Chilled-water return temperature at the transition
+    # subcooling -> evaporation
     T18_sat = T18 + Q_subcool / (
         m17 * inputs.cp_w_kJkgK
     )
 
-    # Pinch-Kandidaten
+    # Pinch candidates
     dT_evap_in = inputs.T_17 - T10
     dT_evap_sat = T18_sat - T10
     dT_evap_out = T18 - T9
@@ -948,18 +958,18 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
     pinch_evap = min(dT_evap_in, dT_evap_sat, dT_evap_out)
 
     # ------------------------------------------------------------------
-    # 12) Absorber (globale Energiebilanz, lokale LMTD mit Zustand 20)
+    # 12) Absorber (global energy balance, local LMTD)
     # ------------------------------------------------------------------
     Q_abs = m10 * h10 + m4 * h6 - m1 * h1
     if strict and Q_abs <= 0.0:
-        raise ModelEvaluationError(f"Absorberwärmestrom nicht positiv: Q_abs={Q_abs:.6f} kW.")
+        raise ModelEvaluationError(f"Absorber heat flow not positive: Q_abs={Q_abs:.6f} kW.")
 
-   # ------------------------------------------------------------------
-    # 8) Kondensator 7 -> 8
+    # ------------------------------------------------------------------
+    # 8) Condenser 7 -> 8
     # ------------------------------------------------------------------
     Q_cond = m7 * (h7 - h8)
     if strict and Q_cond <= 0.0:
-        raise ModelEvaluationError(f"Kondensatorwärmestrom nicht positiv: Q_cond={Q_cond:.6f} kW.")
+        raise ModelEvaluationError(f"Condenser heat flow not positive: Q_cond={Q_cond:.6f} kW.")
     if inputs.uses_serial_condenser_to_absorber_routing:
         T15_in = _resolve_condenser_external_inlet_temperature(inputs)
         if strict:
@@ -995,31 +1005,31 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
             strict=strict, hot_in=T8, hot_out=T8, cold_in=T15_in, cold_out=T16
         )
 
-    # Pinch Absorber: min beider Enden (Lage hängt vom Betriebspunkt ab)
-    dT_abs_hot_end  = T6 - T14   # heiß ein / kalt aus
-    dT_abs_cold_end = T1 - T13_in   # heiß aus / kalt ein
+    # Absorber pinch: min of both ends (location depends on operating point)
+    dT_abs_hot_end  = T6 - T14   # hot in / cold out
+    dT_abs_cold_end = T1 - T13_in   # hot out / cold in
     pinch_abs  = min(dT_abs_hot_end,  dT_abs_cold_end)
 
-    # Wärmeanteil für die Enthitzung:
+    # Heat share for desuperheating:
     h_g_high = water_h_kjkg_PQ(p_high, Q=1.0)
 
     Q_desuperheat = m7 * (h7 - h_g_high)
     Q_desuperheat = max(0.0, min(Q_desuperheat, Q_cond))
 
-    # Kühlwassertemperatur am Übergang
-    # Enthitzung -> Kondensation
+    # Cooling-water temperature at the transition
+    # desuperheating -> condensation
     T16_sat = T16 - Q_desuperheat / (
         inputs.m_15 * inputs.cp_w_kJkgK
     )
 
-    # Pinch-Kandidaten
+    # Pinch candidates
     dT_cond_in = T7 - T16
     dT_cond_sat = T8 - T16_sat
     dT_cond_out = T8 - T15_in
     pinch_cond = min(dT_cond_in, dT_cond_sat, dT_cond_out)
 
     # ------------------------------------------------------------------
-    # 13) Residuen des 7x7-Systems
+    # 13) Residuals of the 6x6 system
     # ------------------------------------------------------------------
     residuals_raw_array = np.array(
         [
@@ -1039,15 +1049,15 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
     residuals_scaled = dict(zip(RESIDUAL_NAMES, residuals_scaled_array.tolist()))
 
     # ------------------------------------------------------------------
-    # 14) Zustandsvalidierung und Plausibilitätschecks
+    # 14) State validation and plausibility checks
     # ------------------------------------------------------------------
     validity_messages: List[str] = []
     crystallization_safe_all = True
     for label, T_state, w_state in [
-        ("1 Flüssigphase nach Drossel", flash["T6_K"], flash["w6_LiBr"]),
+        ("1 liquid phase after throttle", flash["T6_K"], flash["w6_LiBr"]),
         ("1", T1, w1), ("2", T2, w1), ("3", T3, w1), ("4", T4, w4)
     ]:
-        validity = lp.validate_solution_state(T_state, w_state, label=f"Zustand {label}")
+        validity = lp.validate_solution_state(T_state, w_state, label=f"State {label}")
         validity_messages.append(validity.message)
         crystallization_safe_all = crystallization_safe_all and validity.crystallization_safe
 
@@ -1088,7 +1098,7 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
     }
 
     # ------------------------------------------------------------------
-    # 15) Zustandsdictionary
+    # 15) State dictionary
     # ------------------------------------------------------------------
     states = {
         "1":  _state_dict(T1,          p_Pa=p_low,  m_kg_s=m1,  h_kJ_kg=h1,  x_LiBr_mol=x1,  w_LiBr=w1),
@@ -1167,28 +1177,28 @@ def _evaluate_model_common(z: np.ndarray, inputs: AKMInputs, *, strict: bool) ->
     )
 
 
-def evaluate_model(z: np.ndarray, inputs: AKMInputs) -> ModelEvaluation:
-    """Berechnet alle Zustände, Apparategrößen und Residuen für einen Variablenvektor.
+def evaluate_model(z: np.ndarray, inputs: ACInputs) -> ModelEvaluation:
+    """Computes all states, component quantities, and residuals for a variable vector.
 
-    Diese öffentliche Variante ist die strenge Endauswertung und wirft
-    ModelEvaluationError für unphysikalische Zustände.
+    This public variant is the strict final evaluation and raises
+    ModelEvaluationError for unphysical states.
     """
     return _evaluate_model_common(z, inputs, strict=True)
 
 
 # ---------------------------------------------------------------------------
-# Solver-Interface
+# Solver interface
 # ---------------------------------------------------------------------------
 
-def residual_vector(z: np.ndarray, inputs: AKMInputs) -> np.ndarray:
-    """Residuenvektor für least_squares.
+def residual_vector(z: np.ndarray, inputs: ACInputs) -> np.ndarray:
+    """Residual vector for least_squares.
 
-    Schneller Pfad: strenge evaluate_model()-Auswertung.
-    Fallback: derselbe Modellkern in robuster Solver-Variante (strict=False).
+    Fast path: strict evaluate_model() evaluation.
+    Fallback: the same model core in the robust solver variant (strict=False).
 
-    Dadurch benutzt der Solver dieselbe Gleichungsstruktur wie die
-    Endauswertung; nur die für den Solver-Pfad nötigen Robustifizierungen
-    unterscheiden sich noch.
+    This way the solver uses the same equation structure as the final
+    evaluation; only the robustifications needed for the solver path
+    still differ.
     """
     try:
         model = evaluate_model(z, inputs)
@@ -1206,7 +1216,7 @@ def residual_vector(z: np.ndarray, inputs: AKMInputs) -> np.ndarray:
 
 
 def try_evaluate_model(
-    z: np.ndarray, inputs: AKMInputs
+    z: np.ndarray, inputs: ACInputs
 ) -> tuple[ModelEvaluation | None, str | None]:
     try:
         model = evaluate_model(z, inputs)
@@ -1215,7 +1225,7 @@ def try_evaluate_model(
         return None, f"{type(exc).__name__}: {exc}"
 
 
-def solve_awt(inputs: AKMInputs, x0: np.ndarray | None = None) -> AWTResult:
+def solve_ac(inputs: ACInputs, x0: np.ndarray | None = None) -> ACResult:
     if x0 is None:
         x0 = initial_guess(inputs)
 
@@ -1263,7 +1273,7 @@ def solve_awt(inputs: AKMInputs, x0: np.ndarray | None = None) -> AWTResult:
     )
 
     if model is None:
-        return AWTResult(
+        return ACResult(
             inputs=inputs,
             solve_info=solve_info,
             primary_variables=primary_variables,
@@ -1281,7 +1291,7 @@ def solve_awt(inputs: AKMInputs, x0: np.ndarray | None = None) -> AWTResult:
             validity_messages=[],
         )
 
-    return AWTResult(
+    return ACResult(
         inputs=inputs,
         solve_info=solve_info,
         primary_variables=model.primary_variables,
@@ -1301,12 +1311,12 @@ def solve_awt(inputs: AKMInputs, x0: np.ndarray | None = None) -> AWTResult:
 
 
 # ---------------------------------------------------------------------------
-# Debugging-Hilfe: Trace für Startwertanalyse
+# Debugging aid: trace for initial-guess analysis
 # ---------------------------------------------------------------------------
 
-def trace_model(z: np.ndarray, inputs: AKMInputs) -> ModelTrace:
-    """Wertet das Modell schrittweise aus und gibt alle Zwischenergebnisse zurück.
-    Nützlich zur Diagnose von Startwertproblemen."""
+def trace_model(z: np.ndarray, inputs: ACInputs) -> ModelTrace:
+    """Evaluates the model step by step and returns all intermediate results.
+    Useful for diagnosing initial-guess problems."""
     T8, T10, x4, x1, T3, T5 = map(float, z)
 
     values: Dict[str, float] = {}
@@ -1340,7 +1350,7 @@ def trace_model(z: np.ndarray, inputs: AKMInputs) -> ModelTrace:
 
         if not (w4 > w1 > 0.0):
             raise ModelEvaluationError(
-                f"Konzentrationshierarchie verletzt: w4={w4:.6f}, w1={w1:.6f}."
+                f"Concentration hierarchy violated: w4={w4:.6f}, w1={w1:.6f}."
             )
 
         stage = "cycle_scale"
@@ -1372,7 +1382,7 @@ def trace_model(z: np.ndarray, inputs: AKMInputs) -> ModelTrace:
         values["m7_kg_s"] = m7
 
         if m7 <= 0.0:
-            raise ModelEvaluationError(f"m7={m7:.6f} kg/s nicht positiv.")
+            raise ModelEvaluationError(f"m7={m7:.6f} kg/s not positive.")
 
         stage = "solution_pump"
         h5 = lp.h_solution_mass_kjkg(T5, x4)
@@ -1399,9 +1409,9 @@ def trace_model(z: np.ndarray, inputs: AKMInputs) -> ModelTrace:
         values["deltaT_shex_2_K"] = T5 - T2
 
         if Q_shex_hot <= 0.0:
-            raise ModelEvaluationError(f"Q_shex_hot={Q_shex_hot:.4f} kW nicht positiv.")
+            raise ModelEvaluationError(f"Q_shex_hot={Q_shex_hot:.4f} kW not positive.")
         if Q_shex_cold <= 0.0:
-            raise ModelEvaluationError(f"Q_shex_cold={Q_shex_cold:.4f} kW nicht positiv.")
+            raise ModelEvaluationError(f"Q_shex_cold={Q_shex_cold:.4f} kW not positive.")
 
         lmtd_shex = counterflow_lmtd(hot_in=T4, hot_out=T5, cold_in=T2, cold_out=T3)
         values["LMTD_shex_K"] = lmtd_shex
@@ -1424,22 +1434,22 @@ def trace_model(z: np.ndarray, inputs: AKMInputs) -> ModelTrace:
         Q_abs = m10 * h10 + m4 * h6 - m1 * h1
         values["Q_abs_kW"] = Q_abs
         if Q_abs <= 0.0:
-            raise ModelEvaluationError(f"Q_abs={Q_abs:.4f} kW nicht positiv.")
-        
+            raise ModelEvaluationError(f"Q_abs={Q_abs:.4f} kW not positive.")
+
         stage = "evaporator"
         Q_evap = m7 * (h10 - h9)
         if Q_evap <= 0.0:
-            raise ModelEvaluationError(f"Q_evap={Q_evap:.4f} kW nicht positiv.")
+            raise ModelEvaluationError(f"Q_evap={Q_evap:.4f} kW not positive.")
         m17, T18 = _resolve_evaporator_external_stream(inputs, Q_evap, strict=True)
         lmtd_evap = _counterflow_lmtd_mode(
-            hot_in=inputs.T_17, hot_out=T18, cold_in=T9, cold_out=T10
+            strict=True, hot_in=inputs.T_17, hot_out=T18, cold_in=T9, cold_out=T10
         )
 
         values["Q_evap_kW"] = Q_evap
         values["m17_kg_s"] = m17
         values["T18_K"] = T18
-        values["deltaT_abs_1_K"] = T18 - T9
-        values["deltaT_abs_2_K"] = inputs.T_17 - T10
+        values["deltaT_evap_1_K"] = T18 - T9
+        values["deltaT_evap_2_K"] = inputs.T_17 - T10
         values["LMTD_evap_K"] = lmtd_evap
 
         stage = "condenser"
@@ -1459,7 +1469,7 @@ def trace_model(z: np.ndarray, inputs: AKMInputs) -> ModelTrace:
         values["deltaT_cond_2_K"] = T8 - T15_in
 
         if Q_cond <= 0.0:
-            raise ModelEvaluationError(f"Q_cond={Q_cond:.4f} kW nicht positiv.")
+            raise ModelEvaluationError(f"Q_cond={Q_cond:.4f} kW not positive.")
 
         lmtd_cond = counterflow_lmtd(hot_in=T8, hot_out=T8, cold_in=T15_in, cold_out=T16)
         values["LMTD_cond_K"] = lmtd_cond
@@ -1488,7 +1498,7 @@ def trace_model(z: np.ndarray, inputs: AKMInputs) -> ModelTrace:
         stage = "desorber"
         Q_des = m4 * h4 + m7 * h7 - m1 * h3
         if Q_des <= 0.0:
-            raise ModelEvaluationError(f"Q_des={Q_des:.4f} kW nicht positiv.")#
+            raise ModelEvaluationError(f"Q_des={Q_des:.4f} kW not positive.")
         values["Q_des_kW"] = Q_des
         T12 = inputs.T_11 - Q_des / (inputs.m_11 * inputs.cp_w_kJkgK)
 
@@ -1522,7 +1532,7 @@ def trace_model(z: np.ndarray, inputs: AKMInputs) -> ModelTrace:
 
 
 # ---------------------------------------------------------------------------
-# Ausgabehilfen
+# Output helpers
 # ---------------------------------------------------------------------------
 
 def _is_absolute_temperature_key(key: str) -> bool:
@@ -1573,10 +1583,10 @@ def _format_state_line(state_id: str, state: Dict[str, float]) -> str:
 
 def print_trace(trace: ModelTrace) -> None:
     print("=" * 110)
-    print("Startwert-Trace / Modellpunkt-Trace")
+    print("Initial-guess trace / model-point trace")
     print("=" * 110)
 
-    print("Primäre Variablen")
+    print("Primary variables")
     for key, value in trace.primary_variables.items():
         if _is_absolute_temperature_key(key):
             display_value, unit = kelvin_to_celsius(value), "°C"
@@ -1585,15 +1595,15 @@ def print_trace(trace: ModelTrace) -> None:
         print(f"  {key:12s}: {display_value:14.6f} {unit}")
     print()
 
-    print(f"Auswertungsstatus : {trace.success}")
-    print(f"Letzte Stufe      : {trace.stage}")
+    print(f"Evaluation status : {trace.success}")
+    print(f"Last stage        : {trace.stage}")
     if trace.error_type is not None:
-        print(f"Fehlertyp         : {trace.error_type}")
+        print(f"Error type        : {trace.error_type}")
     if trace.error_message is not None:
-        print(f"Fehlermeldung     : {trace.error_message}")
+        print(f"Error message     : {trace.error_message}")
     print()
 
-    print("Berechnete Größen bis zum Abbruch")
+    print("Computed quantities up to the point of failure")
     for key, value in trace.values.items():
         display_key = _display_key(key)
         display_value, unit = _display_value_and_unit(key, value)
@@ -1601,33 +1611,33 @@ def print_trace(trace: ModelTrace) -> None:
     print("=" * 110)
 
 
-def print_summary(result: AWTResult) -> None:
+def print_summary(result: ACResult) -> None:
     print("=" * 110)
-    print("AWT-Simulation – Ergebnisübersicht (7 primäre Unbekannte)")
+    print("AC simulation - results overview (6 primary unknowns)")
     print("=" * 110)
 
-    print("Solver-Informationen")
-    print(f"  Erfolg                 : {result.solve_info.success}")
+    print("Solver information")
+    print(f"  Success                : {result.solve_info.success}")
     print(f"  Status                 : {result.solve_info.status}")
-    print(f"  Nachricht              : {result.solve_info.message}")
-    print(f"  Funktionsauswertungen  : {result.solve_info.nfev}")
+    print(f"  Message                : {result.solve_info.message}")
+    print(f"  Function evaluations   : {result.solve_info.nfev}")
     print(f"  least_squares cost     : {result.solve_info.cost:.6e}")
-    print(f"  Norm skalierter Residuen: {result.solve_info.scaled_residual_norm:.6e}")
+    print(f"  Scaled residual norm   : {result.solve_info.scaled_residual_norm:.6e}")
     if result.solve_info.raw_residual_norm is None:
-        print("  Norm Rohresiduen       : n/a (Endpunkt nicht physikalisch auswertbar)")
+        print("  Raw residual norm      : n/a (final point not physically evaluable)")
     else:
-        print(f"  Norm Rohresiduen       : {result.solve_info.raw_residual_norm:.6e}")
-    print(f"  Endpunkt physikalisch auswertbar: {result.solve_info.final_point_evaluable}")
+        print(f"  Raw residual norm      : {result.solve_info.raw_residual_norm:.6e}")
+    print(f"  Final point physically evaluable: {result.solve_info.final_point_evaluable}")
     if result.solve_info.final_evaluation_error is not None:
-        print(f"  Endpunkt-Auswertungsfehler     : {result.solve_info.final_evaluation_error}")
+        print(f"  Final-point evaluation error   : {result.solve_info.final_evaluation_error}")
     print()
 
     if not result.solve_info.final_point_evaluable:
-        print("Keine physikalisch auswertbare Modelllösung vorhanden.")
+        print("No physically evaluable model solution available.")
         print("=" * 110)
         return
 
-    print("Primäre Solvervariablen")
+    print("Primary solver variables")
     for name in PRIMARY_VARIABLE_NAMES:
         if _is_absolute_temperature_key(name):
             display_value, unit = kelvin_to_celsius(result.primary_variables[name]), "°C"
@@ -1636,7 +1646,7 @@ def print_summary(result: AWTResult) -> None:
         print(f"  {name:8s}: {display_value:12.6f} {unit}")
     print()
 
-    print("Wärmeströme [kW]")
+    print("Heat flows [kW]")
     for key, value in result.heat_flows_kW.items():
         print(f"  {key:12s}: {value:12.6f}")
     print()
@@ -1647,7 +1657,7 @@ def print_summary(result: AWTResult) -> None:
         print(f"  {key:12s}: {value:12.6f} {unit}")
     print()
 
-    print("Pumpenarbeiten [kW]")
+    print("Pump work [kW]")
     for key, value in result.pump_work_W.items():
         print(f"  {key:12s}: {value:12.6f}")
     print()
@@ -1657,38 +1667,38 @@ def print_summary(result: AWTResult) -> None:
         print(f"  {key:12s}: {value:12.6f}")
     print()
 
-    print("Flash-Drossel 5 -> 6 (lokale Unterrechnung; T6 wird im Desorber verwendet)")
+    print("Flash throttle 5 -> 6 (local sub-calculation; T6 is used in the desorber)")
     for key, value in result.flash_outputs.items():
         display_key = _display_key(key)
         display_value, unit = _display_value_and_unit(key, value)
         print(f"  {display_key:28s}: {display_value:14.6f} {unit}")
     print()
 
-    print("Residuen")
+    print("Residuals")
     for name in RESIDUAL_NAMES:
         raw = result.residuals_raw[name]
         scaled = result.residuals_scaled[name]
         print(f"  {name:18s}: raw = {raw:14.6e} | scaled = {scaled:14.6e}")
     print()
 
-    print("Diagnostik")
+    print("Diagnostics")
     for key, value in result.diagnostics.items():
         display_key = _display_key(key)
         display_value, unit = _display_value_and_unit(key, value)
         print(f"  {display_key:28s}: {display_value:14.6f} {unit}")
     print()
 
-    print("Plausibilitätschecks")
+    print("Plausibility checks")
     for key, value in result.checks.items():
         print(f"  {key:35s}: {value}")
     print()
 
-    print("Zustände")
+    print("States")
     for state_id in sorted(result.states, key=lambda s: (len(s), s)):
         print(_format_state_line(state_id, result.states[state_id]))
     print()
 
-    print("Validitätsmeldungen")
+    print("Validity messages")
     for msg in result.validity_messages:
         print(f"  - {msg}")
 
@@ -1696,8 +1706,8 @@ def print_summary(result: AWTResult) -> None:
 
 
 __all__ = [
-    "AKMInputs",
-    "AWTResult",
+    "ACInputs",
+    "ACResult",
     "SolveInfo",
     "ModelTrace",
     "PRIMARY_VARIABLE_NAMES",
@@ -1712,7 +1722,7 @@ __all__ = [
     "evaluate_model",
     "trace_model",
     "residual_vector",
-    "solve_awt",
+    "solve_ac",
     "print_trace",
     "print_summary",
 ]

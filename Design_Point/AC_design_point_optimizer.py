@@ -7,7 +7,7 @@ Bounds      : dT_min_i >= floor_i   (untere Schranke je Wärmeübertrager)
 Fixiert     : Qevap_spec_kW, T_11_C, T_13_C/T_15_C, T_17_C sowie die
               Austrittstemperatur-Spezifikationen (T12/T14/T16/T18_spec_C)
 Ziel        : min Sum(UA_i)  (SHEX, Desorber, Kondensator, Verdampfer, Absorber)
-Penalty     : falls solve_awt() nicht konvergiert oder Plausibilitätschecks
+Penalty     : falls solve_ac() nicht konvergiert oder Plausibilitätschecks
               (Kristallisation, Konzentrationshierarchie, Massenstrom > 0) verletzt sind
 
 Optimierer  : differential_evolution (global, robust gegen Nichtkonvergenz-Sprünge)
@@ -59,17 +59,17 @@ except ImportError:  # pragma: no cover
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from Models.AC_Pinch_Point import (
-    AKMInputs as PinchInputs,
-    AWTResult as PinchResult,
+    ACInputs as PinchInputs,
+    ACResult as PinchResult,
     bounds as pinch_bounds,
     initial_guess as pinch_initial_guess,
-    solve_awt as solve_pinch,
+    solve_ac as solve_pinch,
 )
 
 try:
     from Models.AC_UA_LMTD import (
-        AKMInputs as UAInputs,
-        solve_awt as solve_ua,
+        ACInputs as UAInputs,
+        solve_ac as solve_ua,
     )
     UA_MODEL_AVAILABLE = True
 except ImportError as exc:  # pragma: no cover

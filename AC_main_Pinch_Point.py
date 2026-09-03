@@ -1,4 +1,4 @@
-"""Einstiegspunkt für die AWT-Simulation mit 8 primären Unbekannten.
+"""Einstiegspunkt für die AC-Simulation mit 8 primären Unbekannten.
 
 Die Absorber-Spezifikation ist explizit wählbar:
 - ABSORBER_SPEC_MODE = "m11"  -> m11_spec vorgeben, T12 wird berechnet
@@ -18,11 +18,11 @@ from __future__ import annotations
 import numpy as np
 
 from Models.AC_Pinch_Point import (
-    AKMInputs,
+    ACInputs,
     primary_temperatures_C_to_K,
     print_summary,
     print_trace,
-    solve_awt,
+    solve_ac,
     trace_model,
 )
 
@@ -45,7 +45,7 @@ ABSORBER_CONDENSER_ROUTING_MODE = "parallel"
 #ABSORBER_CONDENSER_ROUTING_MODE = "series_absorber_to_condenser"
 # ABSORBER_CONDENSER_ROUTING_MODE = "series_condenser_to_absorber"
 
-def build_example_inputs() -> AKMInputs:
+def build_example_inputs() -> ACInputs:
     common_kwargs = dict(
         T_11_C=90.0,   # 135, 60, 80
         T_17_C=11.0,   # 30, 20, 20
@@ -117,7 +117,7 @@ def build_example_inputs() -> AKMInputs:
             "'series_absorber_to_condenser' oder 'series_condenser_to_absorber' sein."
         )
     
-    return AKMInputs(
+    return ACInputs(
         **common_kwargs,
         **spec_kwargs,
     )
@@ -148,5 +148,5 @@ if __name__ == "__main__":
     trace = trace_model(x0, inputs)
     #print_trace(trace)
 
-    result = solve_awt(inputs, x0=x0)
+    result = solve_ac(inputs, x0=x0)
     print_summary(result)

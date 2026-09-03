@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Dühring-Diagramme für wässrige LiBr-Lösungen, inkl. AWT-Betriebspunkt.
+"""Dühring-Diagramme für wässrige LiBr-Lösungen, inkl. AHT-Betriebspunkt.
 
 Dieses Modul enthält unverändert die Basisfunktionalität zur Erzeugung von
 Dühring-Diagrammen (Isosteren nach Pátek & Klomfar, Kristallisationsgrenze
 nach Albers/Boryta) sowie zusätzlich `plot_duehring_operating_point()`, die
-den von `solve_awt()` berechneten Betriebspunkt (Zustände 1,2,3,4,5,6,20)
+den von `solve_aht()` berechneten Betriebspunkt (Zustände 1,2,3,4,5,6,20)
 als Kreisprozess-Polygon in das Diagramm einzeichnet.
 
 Positionierung des Betriebspunkts
@@ -43,7 +43,7 @@ Nutzung im Hauptskript
     from Postprocessing.AHT_Duehring_Plot import plot_duehring_operating_point
 
     if ENABLE_DUEHRING_PLOT:
-        plot_duehring_operating_point(result, save_path="Postprocessing/Plots/AWT_Duehring_Diagramm.png")
+        plot_duehring_operating_point(result, save_path="Postprocessing/Plots/AHT_Duehring_Diagramm.png")
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ except ImportError as exc:  # pragma: no cover - nur bei fehlenden Paketen
         "    python -m pip install numpy matplotlib"
     ) from exc
 
-from Models.AHT_Pinch_Point import AWTResult, kelvin_to_celsius
+from Models.AHT_Pinch_Point import AHTResult, kelvin_to_celsius
 import Thermodynamic_Properties.libr_props as lp
 
 
@@ -624,10 +624,10 @@ def save_figure(
 
 
 # =============================================================================
-# AWT-Betriebspunkt-Überlagerung
+# AHT-Betriebspunkt-Überlagerung
 # =============================================================================
 #
-# Dargestellt wird der AWT-Prozess im Dühring-Diagramm.
+# Dargestellt wird der AHT-Prozess im Dühring-Diagramm.
 #
 # Die x-Koordinate eines Lösungszustands ist NICHT die tatsächliche
 # Prozess-/Austrittstemperatur aus dem Modell, sondern die
@@ -688,9 +688,9 @@ _HIGH_PRESSURE_STATES = {"3", "20", "10"}
 
 
 def _operating_point_positions(
-    result: AWTResult,
+    result: AHTResult,
 ) -> dict[str, Tuple[float, float]]:
-    """Bestimmt die Positionen des AWT-Betriebspunkts im Dühring-Diagramm.
+    """Bestimmt die Positionen des AHT-Betriebspunkts im Dühring-Diagramm.
 
     Die x-Koordinaten der Lösungspunkte werden ausschließlich aus
     Druck und LiBr-Konzentration über die Gleichgewichtstemperatur
@@ -802,7 +802,7 @@ def _operating_point_positions(
 
 
 def plot_duehring_operating_point(
-    result: AWTResult,
+    result: AHTResult,
     *,
     variant: Literal["mole", "mass"] = "mass",
     show: bool = True,
@@ -810,7 +810,7 @@ def plot_duehring_operating_point(
     dpi: int = 300,
     run_checks: bool = False,
 ):
-    """Zeichnet den AWT-Betriebspunkt im Dühring-Diagramm.
+    """Zeichnet den AHT-Betriebspunkt im Dühring-Diagramm.
 
     Die Lösungspunkte werden über ihre Gleichgewichtstemperaturen aus
     Druck und LiBr-Konzentration bestimmt. Dadurch liegen die Verbindungen
@@ -826,7 +826,7 @@ def plot_duehring_operating_point(
     Parameters
     ----------
     result:
-        Ergebnisobjekt von `solve_awt()`.
+        Ergebnisobjekt von `solve_aht()`.
 
     variant:
         "mass" für Massenanteil bzw. "mole" für Molanteil der
@@ -865,7 +865,7 @@ def plot_duehring_operating_point(
     # 6 -> 20 -> 3 -> 10 -> 8 -> 1 -> 6
     # ------------------------------------------------------------------
     # ------------------------------------------------------------------
-    # Darstellungseinstellungen für den AWT-Betriebspunkt
+    # Darstellungseinstellungen für den AHT-Betriebspunkt
     # ------------------------------------------------------------------
     # Deutlich kontrastreichere Farbe als tab:orange.
     cycle_color = "tab:blue"
@@ -903,7 +903,7 @@ def plot_duehring_operating_point(
         linewidth=2.4,
         markersize=6.5,
         zorder=12,
-        label="AWT-Betriebspunkt",
+        label="AHT-Betriebspunkt",
     )
 
     # ------------------------------------------------------------------
@@ -1010,10 +1010,10 @@ def plot_duehring_operating_point(
         labels_ = [
             t.get_text()
             for t in existing_legend.get_texts()
-        ] + ["AWT-Betriebspunkt"]
+        ] + ["AHT-Betriebspunkt"]
     else:
         handles = [cycle_handle]
-        labels_ = ["AWT-Betriebspunkt"]
+        labels_ = ["AHT-Betriebspunkt"]
 
     ax.legend(
         handles=handles,
@@ -1025,7 +1025,7 @@ def plot_duehring_operating_point(
     )
 
     fig.suptitle(
-        "AWT – Dühring-Diagramm mit Betriebspunkt",
+        "AHT – Dühring-Diagramm mit Betriebspunkt",
         fontsize=13,
         fontweight="bold",
         y=0.995,
@@ -1050,7 +1050,7 @@ def plot_duehring_operating_point(
 
 
 # =============================================================================
-# Mehrere AWT-Betriebspunkte im selben Dühring-Diagramm (je eine Farbe)
+# Mehrere AHT-Betriebspunkte im selben Dühring-Diagramm (je eine Farbe)
 # =============================================================================
 #
 # Wie plot_duehring_operating_point(), aber für einen Satz von Ergebnissen
@@ -1064,7 +1064,7 @@ def plot_duehring_operating_point(
 # Legende.
 
 def plot_duehring_multi_operating_points(
-    entries: Iterable[Tuple[float, AWTResult]],
+    entries: Iterable[Tuple[float, AHTResult]],
     *,
     variant: Literal["mole", "mass"] = "mass",
     show: bool = True,
@@ -1072,16 +1072,16 @@ def plot_duehring_multi_operating_points(
     dpi: int = 300,
     run_checks: bool = False,
     cmap_name: str = "coolwarm",
-    title: str = "AWT – Dühring-Diagramm, mehrere Abwärmetemperaturen",
+    title: str = "AHT – Dühring-Diagramm, mehrere Abwärmetemperaturen",
 ):
-    """Zeichnet mehrere AWT-Betriebspunkte (je ein (T_waste_C, AWTResult)-Paar
+    """Zeichnet mehrere AHT-Betriebspunkte (je ein (T_waste_C, AHTResult)-Paar
     aus `entries`) als farblich unterschiedene Sechsecke in ein gemeinsames
     Dühring-Diagramm.
 
     Parameters
     ----------
     entries:
-        Iterable von (T_waste_C, result)-Paaren. result muss von solve_awt()
+        Iterable von (T_waste_C, result)-Paaren. result muss von solve_aht()
         stammen (siehe plot_duehring_operating_point()). T_waste_C wird NUR
         für die Farbzuordnung (Verlauf kalt->warm) und die Legendenbeschriftung
         verwendet, nicht aus `result` neu bestimmt (T_waste ist eine externe

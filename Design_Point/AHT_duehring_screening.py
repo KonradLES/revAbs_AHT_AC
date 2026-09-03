@@ -1,4 +1,4 @@
-"""Reines Dühring-/Gleichgewichts-Screening für den AWT -- OHNE Solver.
+"""Reines Dühring-/Gleichgewichts-Screening für den AHT -- OHNE Solver.
 
 Beantwortet die Frage "welcher GTL ist bei welcher Abwärmetemperatur
 *thermodynamisch überhaupt maximal drin*", bevor irgendein Pinch-Modell
@@ -14,7 +14,7 @@ Kein Massen-/Energiebilanz-Solve, keine Kreislaufskalierung, kein Zirkulations-
 verhältnis. Das Ergebnis ist bewusst eine OPTIMISTISCHE Abschätzung (Pinch nur
 am jeweils bindenden Ende, nicht über den vollen Gegenstrom-Temperaturverlauf):
 
-Physikalisches Bild (AWT, wie in Models.AHT_Pinch_Point umgesetzt)
+Physikalisches Bild (AHT, wie in Models.AHT_Pinch_Point umgesetzt)
 -------------------------------------------------------------------
 - Desorber + Kondensator liegen auf der NIEDRIGEN Druckseite (p_low):
   Abwärme bei T13 treibt die Lösung im Desorber aus, der Dampf kondensiert
@@ -189,7 +189,7 @@ def estimate_max_gtl(
             message=(
                 f"p_high ({p_high:.0f} Pa) <= p_low ({p_low:.0f} Pa): "
                 "Abwärmetemperatur T15 zu niedrig relativ zur Rückkühlung T17 "
-                "-- dieses Druckverhältnis kann keinen AWT antreiben."
+                "-- dieses Druckverhältnis kann keinen AHT antreiben."
             ),
             p_low_Pa=p_low, p_high_Pa=p_high,
         )

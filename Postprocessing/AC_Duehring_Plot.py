@@ -1,33 +1,33 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Dühring-Diagramm-Überlagerung für AKM-Betriebspunkte.
+"""Dühring-Diagramm-Überlagerung für AC-Betriebspunkte.
 
 Analogon zu Postprocessing/AHT_Duehring_Plot.py, aber für die
 Absorptionskältemaschine. Die generische Diagrammgrundlage (Isosteren nach
 Pátek & Klomfar, Kristallisationsgrenze nach Albers/Boryta, Achsen/Gitter)
 wird UNVERÄNDERT von dort importiert (create_duehring_figure) -- nur die
-Positionierung des Betriebspunkts im Diagramm ist AKM-spezifisch, weil die
-AKM eine andere Zuordnung von Zustandsnummern zu Druckniveaus hat als der AWT
+Positionierung des Betriebspunkts im Diagramm ist AC-spezifisch, weil die
+AC eine andere Zuordnung von Zustandsnummern zu Druckniveaus hat als der AHT
 (siehe Docstring von AC_feasibility_sweep.py, Abschnitt "Rollentausch").
 
-Sechseck-Geometrie (Analogon zum AWT-Sechseck, siehe AHT_Duehring_Plot.py)
+Sechseck-Geometrie (Analogon zum AHT-Sechseck, siehe AHT_Duehring_Plot.py)
 ----------------------------------------------------------------------------
-Bei der AKM sind Desorber + Kondensator auf der HOHEN Druckseite, Absorber +
-Verdampfer auf der NIEDRIGEN -- genau umgekehrt zum AWT. Das vertauscht auch,
+Bei der AC sind Desorber + Kondensator auf der HOHEN Druckseite, Absorber +
+Verdampfer auf der NIEDRIGEN -- genau umgekehrt zum AHT. Das vertauscht auch,
 welche state-IDs die "reinen Wasser"-Eckpunkte des Sechsecks liefern:
-    AWT: Zustand 8 -> p_low,  Zustand 10 -> p_high
-    AKM: Zustand 8 -> p_high, Zustand 10 -> p_low
+    AHT: Zustand 8 -> p_low,  Zustand 10 -> p_high
+    AC: Zustand 8 -> p_high, Zustand 10 -> p_low
 (Beides sind bei beiden Modellen per Definition Sättigungszustände von reinem
 Wasser -- Kondensatoraustritt Q=0 bzw. Verdampferaustritt Q=1 -- daher direkt
 als y-Koordinate im Dühring-Diagramm nutzbar, ohne Umrechnung.)
 
-Die beiden Lösungs-Isosteren der AKM:
+Die beiden Lösungs-Isosteren der AC:
     - Schwache Lösung (x1 = x3): Zustand 1 (p_low, Absorberaustritt) und
       Zustand 3 (p_high, nach SHEX-Vorwärmung, Desorbereintritt)
     - Starke Lösung (x4 = x6): Zustand 4 (p_high, Desorberaustritt) und
       Zustand 6 (p_low, nach SHEX-Abkühlung + Drossel, Absorbereintritt)
 
-Sechseck-Reihenfolge (analog zur AWT-Struktur: starke Isostere rauf, schwache
+Sechseck-Reihenfolge (analog zur AHT-Struktur: starke Isostere rauf, schwache
 Isostere bei Hochdruck, Wasser-Ecke Hochdruck, Wasser-Ecke Niederdruck,
 schwache Isostere bei Niederdruck, zurück zur starken Isostere):
     6 (stark, p_low) -> 4 (stark, p_high) -> 3 (schwach, p_high) ->
@@ -47,7 +47,7 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
 from Postprocessing.AHT_Duehring_Plot import create_duehring_figure, run_self_checks
-from Models.AC_Pinch_Point import AWTResult, kelvin_to_celsius
+from Models.AC_Pinch_Point import AHTResult, kelvin_to_celsius
 import Thermodynamic_Properties.libr_props as lp
 
 
@@ -69,10 +69,10 @@ _DIAGONAL_STATE_PAIR_WEAK: Tuple[str, str] = ("1", "3")
 _DIAGONAL_STATE_PAIR_STRONG: Tuple[str, str] = ("4", "6")
 
 
-def _operating_point_positions(result: AWTResult) -> dict[str, Tuple[float, float]]:
-    """Bestimmt die Positionen des AKM-Betriebspunkts im Dühring-Diagramm.
+def _operating_point_positions(result: AHTResult) -> dict[str, Tuple[float, float]]:
+    """Bestimmt die Positionen des AC-Betriebspunkts im Dühring-Diagramm.
 
-    Wie beim AWT-Analogon: x-Koordinaten der Lösungspunkte kommen
+    Wie beim AHT-Analogon: x-Koordinaten der Lösungspunkte kommen
     ausschliesslich aus Druck + LiBr-Konzentration über die
     Gleichgewichtstemperatur T_eq = T_sat_solution_from_p_x(p, x) -- damit
     liegen 1/3 exakt auf der Isostere der schwachen, 4/6 exakt auf der
@@ -117,7 +117,7 @@ def _operating_point_positions(result: AWTResult) -> dict[str, Tuple[float, floa
 
 
 def plot_duehring_multi_operating_points(
-    entries: Iterable[Tuple[float, AWTResult]],
+    entries: Iterable[Tuple[float, AHTResult]],
     *,
     variant: Literal["mole", "mass"] = "mass",
     show: bool = True,
@@ -125,9 +125,9 @@ def plot_duehring_multi_operating_points(
     dpi: int = 300,
     run_checks: bool = False,
     cmap_name: str = "coolwarm",
-    title: str = "AKM – Dühring-Diagramm, mehrere Rückkühltemperaturen",
+    title: str = "AC – Dühring-Diagramm, mehrere Rückkühltemperaturen",
 ):
-    """Zeichnet mehrere AKM-Betriebspunkte (je ein (T_rueck_C, AWTResult)-Paar
+    """Zeichnet mehrere AC-Betriebspunkte (je ein (T_rueck_C, AHTResult)-Paar
     aus `entries`) als farblich unterschiedene Sechsecke in ein gemeinsames
     Dühring-Diagramm. Analogon zu
     AHT_Duehring_Plot.plot_duehring_multi_operating_points().
@@ -135,7 +135,7 @@ def plot_duehring_multi_operating_points(
     Parameters
     ----------
     entries:
-        Iterable von (T_rueck_C, result)-Paaren. result muss von solve_awt()
+        Iterable von (T_rueck_C, result)-Paaren. result muss von solve_aht()
         (Models.AC_Pinch_Point) stammen. T_rueck_C wird NUR für die
         Farbzuordnung (Verlauf kalt->warm) und die Legendenbeschriftung
         verwendet.

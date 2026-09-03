@@ -1,4 +1,4 @@
-"""Schnelle Pinch-Feasibility-Karte für die AKM -- NUR Simulation, KEINE Optimierung.
+"""Schnelle Pinch-Feasibility-Karte für die AC -- NUR Simulation, KEINE Optimierung.
 
 Analogon zu AHT_feasibility_sweep.py, aber für die Absorptionskältemaschine.
 
@@ -44,17 +44,17 @@ Dieses Skript hält dT_min FEST auf real angenommene/gebaute Pinch-Werte
 (kein Optimierungsziel!) und sucht für ein Raster von Rückkühltemperaturen
 (T13 = T15, parallele Verschaltung von Absorber und Kondensator) das GESAMTE
 feasible T11-Fenster [T11_min, T11_max] -- nicht nur das Minimum. Jeder Punkt
-kostet nur eine Handvoll solve_awt()-Aufrufe statt einer vollen DE-Suche.
+kostet nur eine Handvoll solve_ac()-Aufrufe statt einer vollen DE-Suche.
 
-Rollentausch gegenüber dem AWT (wichtig für das Verständnis)
+Rollentausch gegenüber dem AHT (wichtig für das Verständnis)
 --------------------------------------------------------------
-Bei der AKM liegen die Druckniveaus GENAU UMGEKEHRT zum AWT: Desorber und
+Bei der AC liegen die Druckniveaus GENAU UMGEKEHRT zum AWT: Desorber und
 Kondensator auf der HOHEN Druckseite, Absorber und Verdampfer auf der
 NIEDRIGEN. Das vertauscht auch, welche zwei Apparate ein gemeinsames
 externes Temperaturniveau teilen ("Paar") und welche zwei unabhängig
 spezifiziert werden ("Einzeln"):
 
-                    AWT (Wärmetransformator)   AKM (Kältemaschine)
+                    AWT (Wärmetransformator)   AC (Kältemaschine)
     Paar (gemeinsame externe Temperatur):
         Desorber + Verdampfer <-> T_waste       Absorber + Kondensator <-> T_rueck
     Einzeln (unabhängig vorgegeben):
@@ -121,11 +121,11 @@ from typing import List, Optional, Sequence, Tuple
 import numpy as np
 
 from Models.AC_Pinch_Point import (
-    AKMInputs,
-    AWTResult,
+    ACInputs,
+    ACResult,
     PRIMARY_VARIABLE_NAMES,
     initial_guess,
-    solve_awt,
+    solve_ac,
 )
 
 RESIDUAL_TOL = 1.0e-6
@@ -197,7 +197,7 @@ class FeasibilityPoint:
     dT_drive_max_K: float
     feasible: bool
     message: str
-    result: Optional[AWTResult] = None
+    result: Optional[ACResult] = None
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +206,7 @@ class FeasibilityPoint:
 
 def _build_inputs(
     T_reject_C: float, T11_C: float, config: FeasibilitySweepConfig, *, fast: bool = True,
-) -> AKMInputs:
+) -> ACInputs:
     kwargs = dict(
         T_11_C=T11_C,
         T_13_C=T_reject_C,
@@ -234,10 +234,10 @@ def _build_inputs(
     if fast:
         kwargs["solver_tol"] = config.probe_solver_tol
         kwargs["max_nfev"] = config.probe_max_nfev
-    return AKMInputs(**kwargs)
+    return ACInputs(**kwargs)
 
 
-def _is_valid_solution(result: AWTResult) -> bool:
+def _is_valid_solution(result: ACResult) -> bool:
     info = result.solve_info
     if not info.success or not info.final_point_evaluable:
         return False
@@ -248,7 +248,7 @@ def _is_valid_solution(result: AWTResult) -> bool:
     return True
 
 
-def _x0_from_result(result: AWTResult) -> np.ndarray:
+def _x0_from_result(result: ACResult) -> np.ndarray:
     return np.array(
         [result.primary_variables[name] for name in PRIMARY_VARIABLE_NAMES], dtype=float
     )
@@ -257,13 +257,13 @@ def _x0_from_result(result: AWTResult) -> np.ndarray:
 def _try_solve(
     T_reject_C: float, T11_C: float, x0: np.ndarray, config: FeasibilitySweepConfig,
     *, fast: bool = True,
-) -> Tuple[bool, Optional[AWTResult]]:
+) -> Tuple[bool, Optional[ACResult]]:
     try:
         inputs = _build_inputs(T_reject_C, T11_C, config, fast=fast)
     except ValueError:
         return False, None
     try:
-        result = solve_awt(inputs, x0=x0)
+        result = solve_ac(inputs, x0=x0)
     except Exception:
         return False, None
     if not _is_valid_solution(result):
@@ -274,7 +274,7 @@ def _try_solve(
 def _solve_raw(
     T_reject_C: float, T11_C: float, x0: np.ndarray, config: FeasibilitySweepConfig,
     *, fast: bool = True,
-) -> Optional[AWTResult]:
+) -> Optional[ACResult]:
     """Wie _try_solve(), gibt aber IMMER das Result zurück (auch wenn nicht
     'valid' nach _is_valid_solution) -- nur None bei echtem Fehler
     (ValueError/Exception). Für Warmstart-Ketten: der Lösungsvektor eines
@@ -286,7 +286,7 @@ def _solve_raw(
     except ValueError:
         return None
     try:
-        return solve_awt(inputs, x0=x0)
+        return solve_ac(inputs, x0=x0)
     except Exception:
         return None
 
@@ -297,7 +297,7 @@ def _solve_raw(
 
 def _locate_anchor(
     T_reject_C: float, config: FeasibilitySweepConfig, x0_seed: np.ndarray, guess_C: float,
-) -> Tuple[Optional[float], Optional[AWTResult]]:
+) -> Tuple[Optional[float], Optional[ACResult]]:
     """Sucht EINEN feasiblen T11-Wert, als Kontinuitäts-WALK in kleinen
     Schritten von guess_C aus (beide Richtungen) -- NICHT als unabhängige
     Sprünge mit demselben Startvektor. Siehe AHT_feasibility_sweep.py für
@@ -397,8 +397,8 @@ def _expand_and_bisect(
 
 def _refine_boundary(
     T_reject_C: float, T11_C: float, x0_seed: np.ndarray, config: FeasibilitySweepConfig,
-) -> Optional[AWTResult]:
-    """Ein abschliessender Solve mit strengen (AKMInputs-Default-)Toleranzen
+) -> Optional[ACResult]:
+    """Ein abschliessender Solve mit strengen (ACInputs-Default-)Toleranzen
     an einer per Fast-Probing gefundenen Fenstergrenze, für belastbare
     KPIs/UA-Werte im zurückgegebenen Result. Fällt bei Fehlschlag auf den
     gelockerten Solve zurück (Toleranzunterschied ist bei
@@ -717,7 +717,7 @@ def plot_feasibility_sweep(
 
     ax.set_xlabel("Rückkühltemperatur T13 = T15 [°C]")
     ax.set_ylabel("Generatoreintrittstemperatur T11 [°C]")
-    ax.set_title("AKM Pinch-Feasibility-Sweep: minimale Generatoreintrittstemperatur vs. Rückkühltemperatur")
+    ax.set_title("AC Pinch-Feasibility-Sweep: minimale Generatoreintrittstemperatur vs. Rückkühltemperatur")
     ax.grid(alpha=0.4)
     ax.legend(fontsize=8.5)
 

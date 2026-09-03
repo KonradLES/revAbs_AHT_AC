@@ -1,10 +1,10 @@
-"""Mehrere AKM-Betriebspunkte (je eine Rückkühltemperatur) in einem
+"""Mehrere AC-Betriebspunkte (je eine Rückkühltemperatur) in einem
 Dühring-Diagramm.
 
 Nutzt denselben Sweep wie AC_feasibility_sweep.py (Warmstart-verkettete
 Homotopie über T_rueck, siehe dort für die vollständige Erklärung), zeichnet
 aber statt einer Tabelle/eines T11-Fenster-Plots für eine Auswahl der
-untersuchten Rückkühltemperaturen den zugehörigen AKM-Kreisprozess -- jeweils
+untersuchten Rückkühltemperaturen den zugehörigen AC-Kreisprozess -- jeweils
 bei T11_min (die pro Rückkühltemperatur minimal nötige
 Generatoreintrittstemperatur, siehe Modul-Docstring von
 AC_feasibility_sweep.py) -- als eigenes Sechseck in einer eigenen Farbe in
@@ -69,7 +69,7 @@ def select_and_plot_duehring(
     variant: str = DUEHRING_VARIANT,
     save_path: Optional[str] = PLOT_SAVE_PATH,
     show: bool = False,
-    title: str = "AKM – Dühring-Diagramm: Betriebspunkte bei T11_min je Rückkühltemperatur",
+    title: str = "AC – Dühring-Diagramm: Betriebspunkte bei T11_min je Rückkühltemperatur",
 ):
     """Wählt aus einer bereits berechneten Sweep-Punkteliste (siehe
     AC_feasibility_sweep.sweep_min_generator_temperature_homotopy()) jeden
@@ -77,7 +77,7 @@ def select_and_plot_duehring(
     T11_min als eigenes Sechseck in ein gemeinsames Dühring-Diagramm.
 
     Rechnet NICHTS neu -- nutzt die in `points[i].result` bereits enthaltenen
-    (streng nachgerechneten, bei T11_min ausgewerteten) AWTResult-Objekte.
+    (streng nachgerechneten, bei T11_min ausgewerteten) AHTResult-Objekte.
     Gibt None zurück (und überspringt mit Hinweis), wenn kein feasibler
     Punkt vorhanden ist.
     """

@@ -2,7 +2,7 @@
 Absorptionskältemaschine) -- OHNE Solver.
 
 Drittes Skript in der Dühring-Screening-Familie, nach AHT_duehring_screening.py
-(single-lift AWT) und AHT_duehring_screening_double_lift.py (double-lift AWT).
+(single-lift AHT) und AHT_duehring_screening_double_lift.py (double-lift AWT).
 Gleiche Philosophie, gleiche Bausteine (Pátek-Korrelationen aus
 Thermodynamic_Properties.libr_props, Wasser-Sättigung aus Models.AHT_Pinch_Point,
 Kristallisationsgrenze nach Albers/Boryta), aber andere Verschaltung: bei der

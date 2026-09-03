@@ -1,9 +1,9 @@
-"""Reines Dühring-/Gleichgewichts-Screening für den DOUBLE-LIFT AWT -- OHNE Solver.
+"""Reines Dühring-/Gleichgewichts-Screening für den DOUBLE-LIFT AHT -- OHNE Solver.
 
 Direktes Analogon zu AHT_duehring_screening.py (single-lift), erweitert um eine
 zweite Verdampfer-Absorber-Stufe. Beantwortet dieselbe Frage wie das Single-Lift-
 Skript ("welcher GTL ist bei welcher Abwärmetemperatur thermodynamisch überhaupt
-maximal drin?"), diesmal für die zweistufige ("double-lift") AWT-Bauart, bevor
+maximal drin?"), diesmal für die zweistufige ("double-lift") AHT-Bauart, bevor
 irgendein Pinch-Modell oder Optimierer angeworfen wird. Nutzt ausschliesslich:
 
   - die LiBr/H2O-Gleichgewichtsbeziehung (Pátek-Korrelationen in
@@ -18,12 +18,12 @@ dessen Docstring. Das Ergebnis ist auch hier bewusst eine OPTIMISTISCHE
 Abschätzung (Pinch nur am jeweils bindenden Ende, nicht über den vollen
 Gegenstrom-Temperaturverlauf).
 
-Physikalisches Bild (Double-Lift AWT, "serial flow" Bauart nach Saito et al.
+Physikalisches Bild (Double-Lift AHT, "serial flow" Bauart nach Saito et al.
 2015 / Lubis et al. 2017, siehe auch den Übersichtsartikel Cudok et al. 2021,
 "Absorption heat transformer - state-of-the-art of industrial applications",
 Renew. Sustain. Energy Rev. 141, 110757, Fig. 2 rechte Seite)
 -------------------------------------------------------------------------------
-Ein Double-Lift-AWT hat -- im Unterschied zum single-lift AWT mit 2 Druck-
+Ein Double-Lift-AHT hat -- im Unterschied zum single-lift AHT mit 2 Druck-
 niveaus -- DREI Druckniveaus, aber weiterhin nur EINEN Desorber und EINEN
 Kondensator:
 
@@ -210,7 +210,7 @@ def estimate_max_gtl_double_lift(
     dT_min_abs2: float = 5.0,
 ) -> DuehringScreeningResultDoubleLift:
     """Optimistische obere Schranke für den erreichbaren Gesamt-GTL eines
-    Double-Lift-AWT, siehe Modul-Docstring.
+    Double-Lift-AHT, siehe Modul-Docstring.
 
     dT_min_des/_evap/_cond/_abs beziehen sich -- wie im single-lift Skript --
     auf Desorber, Verdampfer der Stufe 1 (EL), Kondensator bzw. Absorber der

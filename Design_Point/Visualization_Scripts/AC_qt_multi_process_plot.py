@@ -64,7 +64,7 @@ def select_and_plot_qt_pdf(
     den Q-T-Diagrammen (bei T11_min) in ein gemeinsames PDF.
 
     Rechnet NICHTS neu -- nutzt die in `points[i].result` bereits enthaltenen
-    (streng nachgerechneten, bei T11_min ausgewerteten) AWTResult-Objekte.
+    (streng nachgerechneten, bei T11_min ausgewerteten) AHTResult-Objekte.
     Überspringt mit Hinweis, wenn kein feasibler Punkt vorhanden ist.
     """
     feasible_points = [p for p in points if p.feasible and p.result is not None]
@@ -93,7 +93,7 @@ def select_and_plot_qt_pdf(
         for p in selected:
             fig = plot_qt_diagrams(p.result, show=False, save_path=None)
             fig.suptitle(
-                f"AKM – Q-T-Diagramme (Pinch-Analyse) — T_rueck = {p.T_reject_C:.0f} °C, "
+                f"AC – Q-T-Diagramme (Pinch-Analyse) — T_rueck = {p.T_reject_C:.0f} °C, "
                 f"T11_min = {p.T11_min_C:.2f} °C",
                 fontsize=14,
                 fontweight="bold",

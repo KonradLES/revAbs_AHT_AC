@@ -1,10 +1,10 @@
-"""Designpoint-Optimierung für den Absorptionswärmetransformator (AWT/AHT).
+"""Designpoint-Optimierung für den Absorptionswärmetransformator AHT.
 
 Analog zum Designpoint-Optimierer der Kältemaschine (AC_design_point_optimizer.py),
 aber für Models.AHT_Pinch_Point statt Models.AC_Pinch_Point.
 
 WICHTIGER UNTERSCHIED zur Kältemaschine -- vertauschte Rollen der Apparate:
-  - Absorber liefert die NUTZWÄRME (hohes Temperaturniveau, "Produkt" des AWT).
+  - Absorber liefert die NUTZWÄRME (hohes Temperaturniveau, "Produkt" des AHT).
     Spec-Variablen: absorber_spec_mode="T12", T12_spec_C (Nutzwärmesenke,
     externe Eintritts-/Austrittstemperatur T_11_C -> T12_spec_C).
   - Desorber UND Verdampfer werden BEIDE von der externen Abwärmequelle
@@ -50,16 +50,16 @@ except ImportError:  # pragma: no cover
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from Models.AHT_Pinch_Point import (
-    AWTInputs,
-    bounds as awt_bounds,
-    initial_guess as awt_initial_guess,
-    solve_awt,
+    AHTInputs,
+    bounds as aht_bounds,
+    initial_guess as aht_initial_guess,
+    solve_aht,
 )
 
 try:
     from Models.AHT_UA_LMTD import (
-        AWTInputs as UAInputs,
-        solve_awt as solve_ua,
+        AHTInputs as UAInputs,
+        solve_aht as solve_ua,
     )
     UA_MODEL_AVAILABLE = True
 except ImportError as exc:  # pragma: no cover
@@ -67,9 +67,9 @@ except ImportError as exc:  # pragma: no cover
     _ua_import_error = exc
 
 
-def _clip_to_bounds(z: np.ndarray, inputs: AWTInputs) -> np.ndarray:
+def _clip_to_bounds(z: np.ndarray, inputs: AHTInputs) -> np.ndarray:
     """Sicherheitsnetz: clippt einen Startvektor defensiv auf die Modell-Bounds."""
-    lower, upper = awt_bounds(inputs)
+    lower, upper = aht_bounds(inputs)
     eps = 1.0e-6
     return np.clip(z, lower + eps, upper - eps)
 
@@ -80,7 +80,7 @@ def _clip_to_bounds(z: np.ndarray, inputs: AWTInputs) -> np.ndarray:
 
 @dataclass
 class DesignPointConfig:
-    """Fixierte Randbedingungen des AWT-Designpunkts."""
+    """Fixierte Randbedingungen des AHT-Designpunkts."""
 
     # Externe Eintrittstemperaturen [°C]
     T_11_C: float = 63.0    # Nutzwärmesenke (Absorber), kalter Eintritt
@@ -324,13 +324,13 @@ class WarmStartCache:
         self.z: Optional[np.ndarray] = None
         self.fallback = fallback
 
-    def get(self, inputs: AWTInputs) -> np.ndarray:
+    def get(self, inputs: AHTInputs) -> np.ndarray:
         if self.z is not None:
             z = self.z
         elif self.fallback is not None:
             z = self.fallback
         else:
-            z = awt_initial_guess(inputs)
+            z = aht_initial_guess(inputs)
         return _clip_to_bounds(z, inputs)
 
     def update(self, z: np.ndarray) -> None:
@@ -340,10 +340,10 @@ class WarmStartCache:
         self.z = None
 
 
-def build_awt_inputs(
+def build_aht_inputs(
     theta: np.ndarray, config: DesignPointConfig, *, fast: bool
-) -> AWTInputs:
-    """Baut die AWT-Inputs. fast=True -> gelockerte Solver-Toleranzen (Stufe 1)."""
+) -> AHTInputs:
+    """Baut die AHT-Inputs. fast=True -> gelockerte Solver-Toleranzen (Stufe 1)."""
     dT_shex, dT_des, dT_cond, dT_evap, dT_abs = theta
     kwargs = dict(
         T_11_C=config.T_11_C,
@@ -372,7 +372,7 @@ def build_awt_inputs(
     if fast:
         kwargs["solver_tol"] = config.opt_solver_tol
         kwargs["max_nfev"] = config.opt_max_nfev
-    return AWTInputs(**kwargs)
+    return AHTInputs(**kwargs)
 
 
 def _is_feasible(result) -> bool:
@@ -389,11 +389,11 @@ def design_point_objective(
     cache: WarmStartCache,
     stats: EvalStats,
 ) -> float:
-    inputs = build_awt_inputs(theta, config, fast=True)
+    inputs = build_aht_inputs(theta, config, fast=True)
     x0 = cache.get(inputs)
 
     t0 = time.perf_counter()
-    result = solve_awt(inputs, x0=x0)
+    result = solve_aht(inputs, x0=x0)
     feasible = _is_feasible(result)
 
     # Rückfall auf einen frischen, generischen Startvektor, wenn der
@@ -405,12 +405,12 @@ def design_point_objective(
     # warmgestarteter Versuch oft bis zum nfev-Limit fest, statt sauber zu
     # konvergieren ODER sauber zu scheitern -- das war die Hauptursache für
     # die 72% nfev-Limit-Treffer und die 16h-Laufzeit im 500kW-Testlauf.
-    # awt_initial_guess() kennt das aktuelle Theta nicht, ist aber oft ein
+    # aht_initial_guess() kennt das aktuelle Theta nicht, ist aber oft ein
     # deutlich besserer Startpunkt für ein NEUES Theta als ein Warmstart von
     # einem ganz anderen Theta.
     if not feasible:
-        x0_fresh = _clip_to_bounds(awt_initial_guess(inputs), inputs)
-        result_fresh = solve_awt(inputs, x0=x0_fresh)
+        x0_fresh = _clip_to_bounds(aht_initial_guess(inputs), inputs)
+        result_fresh = solve_aht(inputs, x0=x0_fresh)
         if _is_feasible(result_fresh):
             result = result_fresh
             feasible = True
@@ -474,7 +474,7 @@ def plot_convergence(stats: EvalStats, path: str) -> None:
     ax.set_xlabel("Funktionsauswertung")
     ax.set_ylabel("Zielfunktionswert [kW/K]")
     ax.set_yscale("log")
-    ax.set_title("AWT -- Stufe 1: Konvergenzverlauf")
+    ax.set_title("AHT -- Stufe 1: Konvergenzverlauf")
     ax.legend()
     fig.tight_layout()
     fig.savefig(path, dpi=150)
@@ -557,8 +557,8 @@ def optimize_design_point(
         print("Finaler Präzisions-Solve (strenge Toleranzen) ...")
 
     t0 = time.perf_counter()
-    inputs_opt = build_awt_inputs(theta_opt, config, fast=False)
-    result_opt = solve_awt(inputs_opt, x0=cache.get(inputs_opt))
+    inputs_opt = build_aht_inputs(theta_opt, config, fast=False)
+    result_opt = solve_aht(inputs_opt, x0=cache.get(inputs_opt))
     t_final = time.perf_counter() - t0
 
     final_feasible = _is_feasible(result_opt)
@@ -570,8 +570,8 @@ def optimize_design_point(
                 "Ergebnis mit den gelockerten Optimierungs-Toleranzen (fast=True), "
                 "damit du trotzdem sehen kannst, was gefunden wurde."
             )
-        inputs_fallback = build_awt_inputs(theta_opt, config, fast=True)
-        result_opt = solve_awt(inputs_fallback, x0=cache.get(inputs_fallback))
+        inputs_fallback = build_aht_inputs(theta_opt, config, fast=True)
+        result_opt = solve_aht(inputs_fallback, x0=cache.get(inputs_fallback))
         final_feasible = _is_feasible(result_opt)
 
     t_stage1_total = time.perf_counter() - t_stage1_start
@@ -631,14 +631,14 @@ def optimize_design_point(
 
 def print_design_point_summary(theta: np.ndarray, result) -> None:
     print("=" * 90)
-    print("AWT Designpoint-Optimierung -- Ergebnis")
+    print("AHT Designpoint-Optimierung -- Ergebnis")
     print("=" * 90)
     for key, val in zip(THETA_ORDER, theta):
         print(f"  dT_min_{key:5s}: {val:8.4f} K")
     print()
 
     if not _is_feasible(result) or not result.UA_conversion:
-        # solve_awt() liefert bei final_point_evaluable=False bewusst ein
+        # solve_aht() liefert bei final_point_evaluable=False bewusst ein
         # LEERES UA_conversion (siehe Models.AHT_Pinch_Point) -- UA-Werte aus
         # einem ungültigen Zustand wären bedeutungslos. theta_opt oben ist
         # dann das beste GEFUNDENE (aber nicht valide) theta, kein
@@ -713,10 +713,10 @@ def quick_feasibility_probe(
     print("=" * 90)
     any_feasible = False
     for theta in thetas:
-        inputs = build_awt_inputs(np.asarray(theta, dtype=float), config, fast=False)
+        inputs = build_aht_inputs(np.asarray(theta, dtype=float), config, fast=False)
         x0 = cache.get(inputs)
         t0 = time.perf_counter()
-        result = solve_awt(inputs, x0=x0)
+        result = solve_aht(inputs, x0=x0)
         dt = time.perf_counter() - t0
         feasible = _is_feasible(result)
         any_feasible = any_feasible or feasible

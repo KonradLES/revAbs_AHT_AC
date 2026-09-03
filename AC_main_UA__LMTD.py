@@ -1,4 +1,4 @@
-"""Einstiegspunkt für die AWT-Simulation mit 8 primären Unbekannten.
+"""Einstiegspunkt für die AC-Simulation mit 8 primären Unbekannten.
 
 Die Absorber-Spezifikation ist explizit wählbar:
 - ABSORBER_SPEC_MODE = "m11"  -> m11_spec vorgeben, T12 wird berechnet
@@ -19,11 +19,11 @@ from __future__ import annotations
 import numpy as np
 
 from Models.AC_UA_LMTD import (
-    AKMInputs,
+    ACInputs,
     primary_temperatures_C_to_K,
     print_summary,
     print_trace,
-    solve_awt,
+    solve_ac,
     trace_model,
 )
 
@@ -40,7 +40,7 @@ ABSORBER_CONDENSER_ROUTING_MODE = "parallel"
 #ABSORBER_CONDENSER_ROUTING_MODE = "series_absorber_to_condenser"
 # ABSORBER_CONDENSER_ROUTING_MODE = "series_condenser_to_absorber"
 
-def build_example_inputs() -> AKMInputs:
+def build_example_inputs() -> ACInputs:
     common_kwargs = dict(
         T_11_C=100.0,   # 135, 60, 80
         #T_13_C=None,   # 120, 60
@@ -101,7 +101,7 @@ def build_example_inputs() -> AKMInputs:
     else:
         raise ValueError("CYCLE_SCALE_SPEC_MODE muss 'm1' oder 'Qeva' sein.")
 
-    return AKMInputs(
+    return ACInputs(
         **common_kwargs,
         **spec_kwargs,
     )
@@ -132,5 +132,5 @@ if __name__ == "__main__":
     trace = trace_model(x0, inputs)
     #print_trace(trace)
 
-    result = solve_awt(inputs, x0=x0)
+    result = solve_ac(inputs, x0=x0)
     print_summary(result)

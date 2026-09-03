@@ -23,7 +23,7 @@ Vorgehen (Homotopie):
 
 Diese Version verwendet direkt die echten Schnittstellen aus AHT_Pinch_Point.py:
   - initial_guess(inputs)       -> generische Startwert-Heuristik des Modells
-  - solve_awt(...) -> AWTResult mit .primary_variables (dict!), .solve_info
+  - solve_aht(...) -> AHTResult mit .primary_variables (dict!), .solve_info
     (success, final_point_evaluable, scaled_residual_norm) und .checks
   - Ein Loesungspunkt gilt hier erst dann als "konvergiert", wenn ALLE der
     folgenden Bedingungen erfuellt sind (rein scipy-success reicht nicht,
@@ -46,13 +46,13 @@ import dataclasses
 import numpy as np
 
 from Models.AHT_Pinch_Point import (
-    AWTInputs,
-    AWTResult,
+    AHTInputs,
+    AHTResult,
     PRIMARY_VARIABLE_NAMES,
     initial_guess,
     primary_temperatures_K_to_C,
     print_summary,
-    solve_awt,
+    solve_aht,
 )
 
 # Schwelle fuer die skalierte Residuumsnorm, ab der ein Punkt als
@@ -116,10 +116,10 @@ MAX_ITERATIONS = 500
 # ---------------------------------------------------------------------------
 # Hilfsfunktionen
 # ---------------------------------------------------------------------------
-def _x0_from_result(result: AWTResult) -> np.ndarray:
-    """Extrahiert den Loesungsvektor aus einem AWTResult in der Reihenfolge
+def _x0_from_result(result: AHTResult) -> np.ndarray:
+    """Extrahiert den Loesungsvektor aus einem AHTResult in der Reihenfolge
     von PRIMARY_VARIABLE_NAMES, damit er direkt als x0 fuer den naechsten
-    solve_awt-Aufruf (Warmstart) verwendet werden kann.
+    solve_aht-Aufruf (Warmstart) verwendet werden kann.
     """
     return np.array(
         [result.primary_variables[name] for name in PRIMARY_VARIABLE_NAMES],
@@ -127,7 +127,7 @@ def _x0_from_result(result: AWTResult) -> np.ndarray:
     )
 
 
-def _is_valid_solution(result: AWTResult) -> bool:
+def _is_valid_solution(result: AHTResult) -> bool:
     """Strenge Konvergenzpruefung, siehe Modulbeschreibung oben."""
     info = result.solve_info
     if not info.success:
@@ -141,15 +141,15 @@ def _is_valid_solution(result: AWTResult) -> bool:
     return True
 
 
-def _with_dT_min(inputs: AWTInputs, dT_min: dict) -> AWTInputs:
+def _with_dT_min(inputs: AHTInputs, dT_min: dict) -> AHTInputs:
     """Erzeugt eine Kopie von `inputs` mit aktualisierten dT_min-Werten."""
     try:
         return dataclasses.replace(inputs, **dT_min)
     except TypeError:
-        # Fallback, falls AWTInputs kein dataclass ist
+        # Fallback, falls AHTInputs kein dataclass ist
         data = vars(inputs).copy()
         data.update(dT_min)
-        return AWTInputs(**data)
+        return AHTInputs(**data)
 
 
 def _interp_dT_min(t: float) -> dict:
@@ -160,17 +160,17 @@ def _interp_dT_min(t: float) -> dict:
     }
 
 
-def _try_solve(inputs: AWTInputs, x0: np.ndarray):
-    """Ruft solve_awt auf und prueft das Ergebnis streng (siehe _is_valid_solution).
-    solve_awt wirft bei Nichtkonvergenz KEINE Exception, sondern liefert ein
-    AWTResult mit entsprechend gesetzten solve_info-/checks-Feldern - deshalb
-    wird hier trotzdem defensiv try/except verwendet (z. B. falls AWTInputs
+def _try_solve(inputs: AHTInputs, x0: np.ndarray):
+    """Ruft solve_aht auf und prueft das Ergebnis streng (siehe _is_valid_solution).
+    solve_aht wirft bei Nichtkonvergenz KEINE Exception, sondern liefert ein
+    AHTResult mit entsprechend gesetzten solve_info-/checks-Feldern - deshalb
+    wird hier trotzdem defensiv try/except verwendet (z. B. falls AHTInputs
     selbst schon bei der Konstruktion einen ValueError wirft).
     """
     try:
-        result = solve_awt(inputs, x0=x0)
+        result = solve_aht(inputs, x0=x0)
     except Exception as exc:
-        print(f"    -> Exception bei solve_awt: {exc}")
+        print(f"    -> Exception bei solve_aht: {exc}")
         return False, None
 
     if not _is_valid_solution(result):
@@ -188,14 +188,14 @@ def _try_solve(inputs: AWTInputs, x0: np.ndarray):
     return True, result
 
 
-def find_stable_operating_point(base_inputs: AWTInputs):
+def find_stable_operating_point(base_inputs: AHTInputs):
     """Homotopie-Lauf.
 
     Returns:
-        best_inputs: AWTInputs mit den kleinsten erreichten dT_min
+        best_inputs: AHTInputs mit den kleinsten erreichten dT_min
         best_x0: zugehoeriger konvergierter Loesungsvektor (Warmstart-faehig)
         best_dT: dict der erreichten dT_min-Werte
-        best_result: letztes erfolgreiches solve_awt-Ergebnis
+        best_result: letztes erfolgreiches solve_aht-Ergebnis
     """
     x0 = initial_guess(base_inputs)
 
@@ -258,7 +258,7 @@ def find_stable_operating_point(base_inputs: AWTInputs):
 
 
 if __name__ == "__main__":
-    base_inputs = AWTInputs(**OPERATING_POINT, **DT_MIN_LOOSE)
+    base_inputs = AHTInputs(**OPERATING_POINT, **DT_MIN_LOOSE)
 
     stable_inputs, stable_x0, stable_dT_min, result = find_stable_operating_point(
         base_inputs

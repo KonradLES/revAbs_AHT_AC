@@ -1,4 +1,4 @@
-"""Einstiegspunkt für die AWT-Simulation mit 8 primären Unbekannten.
+"""Einstiegspunkt für die AHT-Simulation mit 8 primären Unbekannten.
 
 Die Absorber-Spezifikation ist explizit wählbar:
 - ABSORBER_SPEC_MODE = "m11"  -> m11_spec vorgeben, T12 wird berechnet
@@ -19,11 +19,11 @@ from __future__ import annotations
 import numpy as np
 
 from Models.AHT_UA_LMTD import (
-    AWTInputs,
+    AHTInputs,
     primary_temperatures_C_to_K,
     print_summary,
     print_trace,
-    solve_awt,
+    solve_aht,
     trace_model,
 )
 
@@ -40,7 +40,7 @@ DESORBER_EVAPORATOR_ROUTING_MODE = "parallel"
 #DESORBER_EVAPORATOR_ROUTING_MODE = "series_desorber_to_evaporator"
 # DESORBER_EVAPORATOR_ROUTING_MODE = "series_evaporator_to_desorber"ö
 
-def build_example_inputs() -> AWTInputs:
+def build_example_inputs() -> AHTInputs:
     common_kwargs = dict(
         T_11_C=79.0,   # 135, 60, 80
         T_17_C=14.0,   # 30, 20, 20
@@ -99,7 +99,7 @@ def build_example_inputs() -> AWTInputs:
     else:
         raise ValueError("CYCLE_SCALE_SPEC_MODE muss 'm6' oder 'Qabs' sein.")
 
-    return AWTInputs(
+    return AHTInputs(
         **common_kwargs,
         **spec_kwargs,
     )
@@ -131,5 +131,5 @@ if __name__ == "__main__":
     trace = trace_model(x0, inputs)
     #print_trace(trace)
 
-    result = solve_awt(inputs, x0=x0)
+    result = solve_aht(inputs, x0=x0)
     print_summary(result)
