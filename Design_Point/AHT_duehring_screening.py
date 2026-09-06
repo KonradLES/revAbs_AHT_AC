@@ -1,66 +1,64 @@
-"""Reines Dühring-/Gleichgewichts-Screening für den AHT -- OHNE Solver.
+"""Pure Duehring/equilibrium screening for the AHT -- NO solver.
 
-Beantwortet die Frage "welcher GTL ist bei welcher Abwärmetemperatur
-*thermodynamisch überhaupt maximal drin*", bevor irgendein Pinch-Modell
-oder Optimierer angeworfen wird. Nutzt ausschliesslich:
+Answers "what GTL is even *thermodynamically achievable at most* at a given
+waste-heat temperature", before any pinch model or optimizer runs. Uses only:
 
-  - die LiBr/H2O-Gleichgewichtsbeziehung (Pátek-Korrelationen in
+  - the LiBr/H2O equilibrium relation (Patek correlations in
     Thermodynamic_Properties.libr_props),
-  - die Kristallisationsgrenze nach Albers/Boryta,
-  - die Wasser-Sättigungsfunktionen aus Models.AHT_Pinch_Point (identische
-    CoolProp-Quelle wie im eigentlichen Solvermodell, daher konsistent).
+  - the Albers/Boryta crystallization limit,
+  - the water saturation functions from Models.AHT_Pinch_Point (same
+    CoolProp source as the actual solver model, so consistent).
 
-Kein Massen-/Energiebilanz-Solve, keine Kreislaufskalierung, kein Zirkulations-
-verhältnis. Das Ergebnis ist bewusst eine OPTIMISTISCHE Abschätzung (Pinch nur
-am jeweils bindenden Ende, nicht über den vollen Gegenstrom-Temperaturverlauf):
+No mass/energy balance solve, no cycle scaling, no circulation ratio. The
+result is deliberately an OPTIMISTIC estimate (pinch only at the binding
+end, not over the full counterflow temperature profile):
 
-Physikalisches Bild (AHT, wie in Models.AHT_Pinch_Point umgesetzt)
+Physical picture (AHT, as implemented in Models.AHT_Pinch_Point)
 -------------------------------------------------------------------
-- Desorber + Kondensator liegen auf der NIEDRIGEN Druckseite (p_low):
-  Abwärme bei T13 treibt die Lösung im Desorber aus, der Dampf kondensiert
-  bei T17 (Rückkühlung).
-- Verdampfer + Absorber liegen auf der HOHEN Druckseite (p_high):
-  Abwärme bei T15 verdampft das Kältemittel bei p_high (deshalb höheres
-  Druckniveau als der Kondensator!), der Dampf wird im Absorber von der im
-  Desorber aufkonzentrierten ("starken") Lösung absorbiert und liefert
-  Nutzwärme bei T12 > T15 -- das ist die eigentliche "Transformer"-Anhebung.
+- Desorber + condenser sit on the LOW-pressure side (p_low): waste heat at
+  T13 drives solution out in the desorber, the vapor condenses at T17
+  (reject cooling).
+- Evaporator + absorber sit on the HIGH-pressure side (p_high): waste heat
+  at T15 evaporates the refrigerant at p_high (hence the higher pressure
+  level than the condenser!); the vapor is absorbed in the absorber by the
+  solution concentrated ("strong") in the desorber, delivering useful heat
+  at T12 > T15 -- this is the actual "transformer" lift.
 
-Kernidee der Abschätzung
-------------------------
-1. p_low aus T17 (Kondensator-Pinch am kalten Ende: T8 = T17 + dT_min_cond).
-2. p_high aus T15 (Verdampfer-Pinch am heissen Ende, optimistisch:
+Core idea of the estimate
+--------------------------
+1. p_low from T17 (condenser pinch at the cold end: T8 = T17 + dT_min_cond).
+2. p_high from T15 (evaporator pinch at the hot end, optimistic:
    T10 = T15 - dT_min_evap).
-3. Die im Desorber maximal erreichbare Konzentration x_strong ergibt sich
-   direkt aus der Dühring-Gleichgewichtsbedingung
+3. The maximum concentration x_strong reachable in the desorber follows
+   directly from the Duehring equilibrium condition
        T_sat_solution(p_low, x_strong) = T13 - dT_min_des
-   (die Lösung siedet bis zu der Konzentration auf, deren Siedepunkt bei
-   p_low gerade der Antriebstemperatur minus Pinch entspricht).
-4. Kristallisationscheck bei (T13 - dT_min_des, w_strong).
-5. Die maximal lieferbare Nutzwärmetemperatur ergibt sich aus dem
-   Siedepunkt DERSELBEN (starken) Konzentration bei p_high, abzüglich des
-   Absorber-Pinch:
+   (the solution boils up to the concentration whose boiling point at
+   p_low equals the driving temperature minus the pinch).
+4. Crystallization check at (T13 - dT_min_des, w_strong).
+5. The maximum deliverable useful-heat temperature follows from the
+   boiling point of the SAME (strong) concentration at p_high, minus the
+   absorber pinch:
        T12_max = T_sat_solution(p_high, x_strong) - dT_min_abs
        GTL_max = T12_max - T15
 
-Diese Kette braucht kein Zirkulationsverhältnis (m_stark/m_schwach), weil
-für die maximal mögliche Temperatur im Absorber die am *heissesten*
-eintretende (= stärkste) Lösung massgeblich ist -- exakt der Zustand, den
-Schritt 3 liefert. Das deckt sich mit der klassischen graphischen
-Dühring-Auslegung (zwei Isothermen + zwei Isosteren), wie sie auch in
-Postprocessing/AHT_Duehring_Plot.py als Sechseck dargestellt wird.
+This chain needs no circulation ratio (m_strong/m_weak): the *hottest*-
+entering (= strongest) solution is what sets the maximum absorber
+temperature -- exactly the state step 3 produces. This matches the classic
+graphical Duehring construction (two isotherms + two isosteres), also drawn
+as a hexagon in Postprocessing/AHT_Duehring_Plot.py.
 
-Was hier NICHT abgebildet wird (bewusst, für Geschwindigkeit):
-  - Massenstromaufteilung / Zirkulationsverhältnis (FR)
-  - SHEX-Wärmerückgewinnung, Vorabsorption
-  - Der tatsächliche Temperaturverlauf über die Wärmeübertrager (nur der
-    jeweils bindende Pinch-Punkt wird betrachtet, nicht LMTD/Gegenstrom)
-  - UA-Werte / Baugrösse
+What this deliberately does NOT capture (for speed):
+  - mass-flow split / circulation ratio (FR)
+  - SHEX heat recovery, pre-absorption
+  - the actual temperature profile across the heat exchangers (only the
+    binding pinch point is considered, not LMTD/counterflow)
+  - UA values / equipment size
 
--> Ergebnis ist eine OBERE Schranke. Das volle Pinch-Modell
-   (AHT_feasibility_sweep.py, AHT_design_point_optimizer.py) liefert
-   danach die tatsächlich erreichbare, engere Grenze.
+-> The result is an UPPER bound. The full pinch model
+   (AHT_feasibility_sweep.py, AHT_design_point_optimizer.py) then gives the
+   actually achievable, tighter limit.
 
-Aufruf als Skript
+Standalone usage
 -----------------
     python Design_Point/AHT_duehring_screening.py
 """
@@ -91,13 +89,13 @@ X_HI = lp.X_MAX_PAT - 1.0e-6
 
 
 # ---------------------------------------------------------------------------
-# Kernfunktionen
+# Core functions
 # ---------------------------------------------------------------------------
 
 def concentration_for_boiling_point(p_pa: float, T_target_K: float) -> float:
-    """Invertiert T_sat_solution_from_p_x: liefert x, sodass die Lösung bei
-    p_pa genau bei T_target_K siedet. Wirft ValueError, wenn T_target_K
-    ausserhalb des bei diesem Druck erreichbaren Bereichs liegt."""
+    """Inverts T_sat_solution_from_p_x: returns x such that the solution boils
+    at exactly T_target_K at p_pa. Raises ValueError if T_target_K is outside
+    the range reachable at this pressure."""
 
     def f(x: float) -> float:
         return lp.T_sat_solution_from_p_x(p_pa, x) - T_target_K
@@ -106,15 +104,15 @@ def concentration_for_boiling_point(p_pa: float, T_target_K: float) -> float:
     f_hi = f(X_HI)
     if f_lo > 0.0:
         raise ValueError(
-            f"T_target={T_target_K:.3f} K liegt unterhalb des Siedepunkts von "
-            f"reinem Wasser bei p={p_pa:.1f} Pa -- keine Aufkonzentration möglich "
-            "(Antriebstemperatur zu niedrig relativ zu diesem Druckniveau)."
+            f"T_target={T_target_K:.3f} K is below the boiling point of pure "
+            f"water at p={p_pa:.1f} Pa -- no concentrating possible "
+            "(driving temperature too low relative to this pressure level)."
         )
     if f_lo * f_hi > 0.0:
         raise ValueError(
-            f"T_target={T_target_K:.3f} K ist bei p={p_pa:.1f} Pa mit keiner "
-            f"LiBr-Konzentration im gültigen Bereich [{X_LO:.2e}, {X_HI:.6f}] "
-            "erreichbar (Antriebstemperatur zu hoch / ausserhalb Patek-Bereich)."
+            f"T_target={T_target_K:.3f} K is not reachable at p={p_pa:.1f} Pa "
+            f"with any LiBr concentration in the valid range [{X_LO:.2e}, {X_HI:.6f}] "
+            "(driving temperature too high / outside the Patek range)."
         )
     return float(brentq(f, X_LO, X_HI))
 
@@ -142,11 +140,11 @@ class DuehringScreeningResult:
     GTL_max_K: float = float("nan")
     crystallization_safe: bool = True
     crystallization_message: str = ""
-    # True, wenn x_strong auf die Löslichkeitsgrenze geklemmt wurde (siehe
-    # estimate_max_gtl()): T12_max_K/GTL_max_K sind dann NICHT mehr durch den
-    # Desorber-Pinch (volle Antriebstemperatur ausgenutzt), sondern durch die
-    # Kristallisationsgrenze limitiert -- weiterhin eine gültige, nur eben
-    # löslichkeits- statt temperaturlimitierte obere Schranke.
+    # True if x_strong was clamped to the solubility limit (see
+    # estimate_max_gtl()): T12_max_K/GTL_max_K are then limited NOT by the
+    # desorber pinch (full driving temperature used) but by the
+    # crystallization limit -- still a valid upper bound, just solubility-
+    # rather than temperature-limited.
     crystallization_limited: bool = False
 
 
@@ -160,7 +158,7 @@ def estimate_max_gtl(
     dT_min_cond: float = 5.0,
     dT_min_abs: float = 5.0,
 ) -> DuehringScreeningResult:
-    """Optimistische obere Schranke für den erreichbaren GTL, siehe Modul-Docstring."""
+    """Optimistic upper bound on the achievable GTL, see module docstring."""
 
     common = dict(
         T13_C=T13_C, T15_C=T15_C, T17_C=T17_C,
@@ -168,18 +166,18 @@ def estimate_max_gtl(
         dT_min_cond=dT_min_cond, dT_min_abs=dT_min_abs,
     )
 
-    # 1) Kondensatordruck aus T17 (Pinch am kalten Ende)
+    # 1) Condenser pressure from T17 (pinch at the cold end)
     T8_K = celsius_to_kelvin(T17_C) + dT_min_cond
     p_low = water_p_sat_from_T(T8_K, Q=0.0)
 
-    # 2) Verdampferdruck aus T15 (Pinch am heissen Ende, optimistisch)
+    # 2) Evaporator pressure from T15 (pinch at the hot end, optimistic)
     T10_K = celsius_to_kelvin(T15_C) - dT_min_evap
     try:
         p_high = water_p_sat_from_T(T10_K, Q=1.0)
     except Exception as exc:
         return DuehringScreeningResult(
             **common, feasible=False,
-            message=f"Verdampferdruck nicht berechenbar: {exc}",
+            message=f"Evaporator pressure not computable: {exc}",
             p_low_Pa=p_low,
         )
 
@@ -188,13 +186,13 @@ def estimate_max_gtl(
             **common, feasible=False,
             message=(
                 f"p_high ({p_high:.0f} Pa) <= p_low ({p_low:.0f} Pa): "
-                "Abwärmetemperatur T15 zu niedrig relativ zur Rückkühlung T17 "
-                "-- dieses Druckverhältnis kann keinen AHT antreiben."
+                "waste-heat temperature T15 too low relative to reject "
+                "cooling T17 -- this pressure ratio cannot drive an AHT."
             ),
             p_low_Pa=p_low, p_high_Pa=p_high,
         )
 
-    # 3) Desorber-Gleichgewicht: x_strong aus T13 und p_low
+    # 3) Desorber equilibrium: x_strong from T13 and p_low
     T_gen_K = celsius_to_kelvin(T13_C) - dT_min_des
     try:
         x_strong = concentration_for_boiling_point(p_low, T_gen_K)
@@ -208,32 +206,30 @@ def estimate_max_gtl(
 
     w_strong = lp.w_libr_from_x(x_strong)
 
-    # 4) Kristallisationscheck am Desorberaustritt
+    # 4) Crystallization check at the desorber outlet
     validity = lp.validate_solution_state(
-        T_gen_K, w_strong, label="Desorberaustritt (Dühring-Screening)"
+        T_gen_K, w_strong, label="Desorber outlet (Duehring screening)"
     )
 
-    # 4b) Auf die Löslichkeitsgrenze klemmen, statt den Punkt zu verwerfen.
+    # 4b) Clamp to the solubility limit instead of discarding the point.
     #
-    # x_strong oben ist die Konzentration, deren Siedepunkt bei p_low GENAU
-    # der vollen Antriebstemperatur (T13 - dT_min_des) entspricht. Ist diese
-    # Konzentration nicht löslich, kann die reale Lösung dort NICHT hin
-    # aufkonzentriert werden -- sie kristallisiert vorher aus und bleibt an
-    # der Löslichkeitsgrenze stehen. Der Desorber ist dann nicht mehr
-    # Pinch-, sondern löslichkeitslimitiert (es steht mehr Antriebstemperatur
-    # zur Verfügung, als genutzt werden kann). GTL_max wird deshalb aus DER
-    # geklemmten Konzentration neu bestimmt -- weiterhin eine gültige obere
-    # Schranke, nur mit anderer bindender Nebenbedingung.
+    # x_strong above is the concentration whose boiling point at p_low
+    # equals EXACTLY the full driving temperature (T13 - dT_min_des). If
+    # this concentration isn't soluble, the real solution can't actually
+    # concentrate up that far -- it crystallizes first and stays at the
+    # solubility limit. The desorber is then no longer pinch-limited but
+    # solubility-limited (more driving temperature is available than can be
+    # used). GTL_max is therefore recomputed from the clamped concentration
+    # -- still a valid upper bound, just with a different binding constraint.
     crystallization_limited = False
     if validity.crystallization_checked and not validity.crystallization_safe:
-        # Bisektion DIREKT auf der echten Sicherheitsprüfung (nicht nur auf
-        # der T->w-Korrelation): die beiden Kristallisationskorrelationen
-        # (T_cr(w) und w_cr(T)) sind unabhängige Fits, keine exakten
-        # Inversen voneinander -- bei höheren Temperaturen weicht das um
-        # mehr als 1 K auseinander. w=0.57 ist per Definition immer sicher
-        # (siehe validate_solution_state), w_strong ist hier per Vorbedingung
-        # unsicher -- klassische Bisektion konvergiert auf die tatsächliche
-        # Grenze, unabhängig davon, welche der beiden Korrelationen bindet.
+        # Bisect DIRECTLY on the real safety check (not just on the T->w
+        # correlation): the two crystallization correlations (T_cr(w) and
+        # w_cr(T)) are independent fits, not exact inverses of each other --
+        # at higher temperatures they diverge by more than 1 K. w=0.57 is
+        # always safe by definition (see validate_solution_state), and
+        # w_strong is unsafe here by precondition -- plain bisection
+        # converges to the actual limit regardless of which correlation binds.
         w_lo, w_hi = 0.57, w_strong
         for _ in range(60):
             w_mid = 0.5 * (w_lo + w_hi)
@@ -246,17 +242,17 @@ def estimate_max_gtl(
         w_strong = lp.w_libr_from_x(x_strong)
         validity = lp.validate_solution_state(
             T_gen_K, w_strong,
-            label="Desorberaustritt (Dühring-Screening, an Löslichkeitsgrenze geklemmt)",
+            label="Desorber outlet (Duehring screening, clamped to solubility limit)",
         )
         crystallization_limited = True
 
-    # 5) Absorber: gleiche (starke, ggf. geklemmte) Konzentration bei p_high -> T12_max
+    # 5) Absorber: same (strong, possibly clamped) concentration at p_high -> T12_max
     try:
         T_abs_solution_K = lp.T_sat_solution_from_p_x(p_high, x_strong)
     except Exception as exc:
         return DuehringScreeningResult(
             **common, feasible=False,
-            message=f"Absorber-Gleichgewichtstemperatur nicht berechenbar: {exc}",
+            message=f"Absorber equilibrium temperature not computable: {exc}",
             p_low_Pa=p_low, p_high_Pa=p_high,
             x_strong=x_strong, w_strong=w_strong,
             T_gen_C=kelvin_to_celsius(T_gen_K), T10_C=kelvin_to_celsius(T10_K),
@@ -271,16 +267,16 @@ def estimate_max_gtl(
 
     feasible = validity.crystallization_safe and GTL_max_K > 0.0
     if not validity.crystallization_safe:
-        message = f"Kristallisationsrisiko: {validity.message}"
+        message = f"Crystallization risk: {validity.message}"
     elif GTL_max_K <= 0.0:
         message = (
-            f"T12_max ({T12_max_C:.2f} °C) liegt nicht über T15 ({T15_C:.2f} °C) "
-            "-- kein positiver GTL erreichbar."
+            f"T12_max ({T12_max_C:.2f} °C) is not above T15 ({T15_C:.2f} °C) "
+            "-- no positive GTL achievable."
         )
     elif crystallization_limited:
-        message = "OK (an Löslichkeitsgrenze geklemmt, nicht voller Desorber-Pinch ausgenutzt)."
+        message = "OK (clamped to solubility limit, full desorber pinch not used)."
     else:
-        message = "OK (optimistische obere Schranke)."
+        message = "OK (optimistic upper bound)."
 
     return DuehringScreeningResult(
         **common, feasible=feasible, message=message,
@@ -295,7 +291,7 @@ def estimate_max_gtl(
 
 
 # ---------------------------------------------------------------------------
-# Sweep über Abwärmetemperatur (T13 = T15, "parallel"-Fall)
+# Sweep over waste-heat temperature (T13 = T15, "parallel" case)
 # ---------------------------------------------------------------------------
 
 def sweep_waste_heat_temperature(
@@ -307,8 +303,8 @@ def sweep_waste_heat_temperature(
     dT_min_cond: float = 5.0,
     dT_min_abs: float = 5.0,
 ) -> List[DuehringScreeningResult]:
-    """Setzt T13 = T15 = T_waste (parallele Verschaltung) und wertet
-    estimate_max_gtl() für jeden Wert aus T_waste_values_C aus."""
+    """Sets T13 = T15 = T_waste (parallel routing) and evaluates
+    estimate_max_gtl() for each value in T_waste_values_C."""
     return [
         estimate_max_gtl(
             T13_C=t, T15_C=t, T17_C=T17_C,
@@ -323,16 +319,16 @@ def print_results_table(results: Sequence[DuehringScreeningResult]) -> None:
     print("=" * 100)
     print(
         f"{'T_waste[C]':>10} {'T17[C]':>7} {'x_strong':>9} {'w_strong':>9} "
-        f"{'T12_max[C]':>11} {'GTL_max[K]':>11} {'Kristall.':>10}  Hinweis"
+        f"{'T12_max[C]':>11} {'GTL_max[K]':>11} {'Cryst.':>10}  Note"
     )
     print("-" * 100)
     for r in results:
         if not r.crystallization_safe:
-            krist = "RISIKO"
+            krist = "RISK"
         elif r.crystallization_limited:
-            krist = "geklemmt"
+            krist = "clamped"
         else:
-            krist = "sicher"
+            krist = "safe"
         print(
             f"{r.T13_C:10.2f} {r.T17_C:7.2f} {r.x_strong:9.4f} {r.w_strong:9.4f} "
             f"{r.T12_max_C:11.2f} {r.GTL_max_K:11.2f} {krist:>10}  {r.message}"
@@ -351,11 +347,14 @@ def plot_gtl_vs_waste_heat(
     save_path: Optional[str] = "Design_Point/Plots/duehring_screening_GTL_3K.png",
     show: bool = True,
 ):
-    """Eine Kurve GTL_max vs. Abwärmetemperatur je T17-Wert. Infeasible/
-    Kristallisationsrisiko-Punkte werden als leere Marker dargestellt."""
+    """One curve of GTL_max vs. waste-heat temperature per T17 value.
+    Infeasible/crystallization-risk points are drawn as hollow markers."""
     import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots(figsize=(8.5, 6.0))
+    palette = ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9"]
+
+    fig, ax = plt.subplots(figsize=(7.0, 5.0))
+    ax.set_prop_cycle(color=palette)
 
     all_results = {}
     for T17_C in T17_values_C:
@@ -370,24 +369,20 @@ def plot_gtl_vs_waste_heat(
         y = np.array([r.GTL_max_K for r in results])
         ok = np.array([r.feasible for r in results])
 
-        (line,) = ax.plot(x[ok], y[ok], "o-", label=f"T17 = {T17_C:.0f} °C")
+        (line,) = ax.plot(x[ok], y[ok], "o-", linewidth=1.8, markersize=5, label=f"T17 = {T17_C:.0f} °C")
         if np.any(~ok):
-            ax.plot(
-                x[~ok], y[~ok], "x", color=line.get_color(),
-                markersize=8, markeredgewidth=2,
-            )
+            ax.plot(x[~ok], y[~ok], "x", color=line.get_color(), markersize=7, markeredgewidth=2)
 
-    ax.set_xlabel("Abwärmetemperatur T13 = T15 [°C]")
-    ax.set_ylabel("Maximaler GTL = T12,max - T15 [K]\n(optimistische obere Schranke)")
-    ax.set_title("Dühring-Screening: theoretisch maximaler GTL vs. Abwärmetemperatur")
-    ax.axhline(0.0, color="0.5", linewidth=0.8)
-    ax.grid(alpha=0.4)
-    ax.legend(title="× = Kristallisationsrisiko\noder GTL ≤ 0")
+    ax.set_xlabel("Waste-heat temperature T13 = T15 [°C]")
+    ax.set_ylabel("Max. GTL [K]")
+    ax.axhline(0.0, color="0.6", linewidth=0.8)
+    ax.grid(alpha=0.3)
+    ax.legend(title="× not feasible", frameon=False, fontsize=9, title_fontsize=9)
 
     fig.tight_layout()
     if save_path is not None:
         fig.savefig(save_path, dpi=150, bbox_inches="tight")
-        print(f"Plot gespeichert: {save_path}")
+        print(f"Plot saved: {save_path}")
     if show:
         plt.show()
 
@@ -396,7 +391,7 @@ def plot_gtl_vs_waste_heat(
 
 if __name__ == "__main__":
     # ------------------------------------------------------------------
-    # HIER ANPASSEN: Pinch-Annahmen für die optimistische Abschätzung
+    # ADJUST HERE: pinch assumptions for the optimistic estimate
     # ------------------------------------------------------------------
     DT_MIN_DES = 3.0
     DT_MIN_EVAP = 3.0
@@ -406,7 +401,7 @@ if __name__ == "__main__":
     T_WASTE_RANGE_C = list(np.arange(40.0, 100.0, 5.0))
     T17_CURVES_C = [15.0, 20.0, 25.0]
 
-    print("Dühring-Screening für T17 = 20 °C:")
+    print("Duehring screening for T17 = 20 °C:")
     results = sweep_waste_heat_temperature(
         T_WASTE_RANGE_C, T17_C=20.0,
         dT_min_des=DT_MIN_DES, dT_min_evap=DT_MIN_EVAP,

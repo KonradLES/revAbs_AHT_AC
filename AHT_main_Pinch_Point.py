@@ -1,17 +1,29 @@
-"""Einstiegspunkt für die AHT-Simulation mit 8 primären Unbekannten.
+"""Entry point for the AHT simulation with 7 primary unknowns.
 
-Die Absorber-Spezifikation ist explizit wählbar:
-- ABSORBER_SPEC_MODE = "m11"  -> m11_spec vorgeben, T12 wird berechnet
-- ABSORBER_SPEC_MODE = "T12"  -> T12_spec_C vorgeben, m11 wird berechnet
+Absorber specification is explicitly selectable:
+- ABSORBER_SPEC_MODE = "m11" -> give m11_spec, T12 is computed
+- ABSORBER_SPEC_MODE = "T12" -> give T12_spec_C, m11 is computed
 
-Die Kreislaufskalierung ist explizit wählbar:
-- CYCLE_SCALE_SPEC_MODE = "m6"   -> m6_spec vorgeben
-- CYCLE_SCALE_SPEC_MODE = "Qabs" -> Qabs_spec_kW vorgeben, m6 wird berechnet
+Desorber specification is explicitly selectable:
+- DESORBER_SPEC_MODE = "m13" -> give m13_spec, T14 is computed
+- DESORBER_SPEC_MODE = "T14" -> give T14_spec_C, m13 is computed
 
-Die externe thermische Verschaltung von Desorber und Verdampfer ist wählbar:
-- DESORBER_EVAPORATOR_ROUTING_MODE = "parallel" -> T_13_C und T_15_C werden vorgegeben
-- DESORBER_EVAPORATOR_ROUTING_MODE = "series_desorber_to_evaporator" -> intern gilt T15 = T14
-- DESORBER_EVAPORATOR_ROUTING_MODE = "series_evaporator_to_desorber" -> intern gilt T13 = T16
+Evaporator specification is explicitly selectable:
+- EVAPORATOR_SPEC_MODE = "m15" -> give m15_spec, T16 is computed
+- EVAPORATOR_SPEC_MODE = "T16" -> give T16_spec_C, m15 is computed
+
+Condenser specification is explicitly selectable:
+- CONDENSER_SPEC_MODE = "m17" -> give m17_spec, T18 is computed
+- CONDENSER_SPEC_MODE = "T18" -> give T18_spec_C, m17 is computed
+
+Cycle scaling is explicitly selectable:
+- CYCLE_SCALE_SPEC_MODE = "m6"   -> give m6_spec
+- CYCLE_SCALE_SPEC_MODE = "Qabs" -> give Qabs_spec_kW, m6 is computed
+
+External thermal routing of desorber and evaporator is selectable:
+- DESORBER_EVAPORATOR_ROUTING_MODE = "parallel" -> T_13_C and T_15_C are given
+- DESORBER_EVAPORATOR_ROUTING_MODE = "series_desorber_to_evaporator" -> internally T15 = T14
+- DESORBER_EVAPORATOR_ROUTING_MODE = "series_evaporator_to_desorber" -> internally T13 = T16
 """
 
 from __future__ import annotations
@@ -32,13 +44,13 @@ from Postprocessing.AHT_Duehring_Plot import plot_duehring_operating_point
 # ----------------------------------------------------------------------------
 # Plots
 # ----------------------------------------------------------------------------
-# Q-T-Diagramme (Pinch-Analyse) nach der Lösung erzeugen?
+# Generate Q-T diagrams (pinch analysis) after solving?
 ENABLE_QT_PLOT = True
-QT_PLOT_SAVE_PATH = "Postprocessing/Plots/AHT_QT_Diagramme.png"  # None, um nicht zu speichern
-# Dühring-Diagramm mit eingezeichnetem Betriebspunkt nach der Lösung erzeugen?
+QT_PLOT_SAVE_PATH = "Postprocessing/Plots/AHT_QT_Diagramme.png"  # None to skip saving
+# Generate a Duehring diagram with the operating point marked, after solving?
 ENABLE_DUEHRING_PLOT = True
-DUEHRING_PLOT_SAVE_PATH = "Postprocessing/Plots/AHT_Duehring_Diagramm.png"  # None, um nicht zu speichern
-DUEHRING_PLOT_VARIANT = "mass"  # "mass" oder "mole"
+DUEHRING_PLOT_SAVE_PATH = "Postprocessing/Plots/AHT_Duehring_Diagramm.png"  # None to skip saving
+DUEHRING_PLOT_VARIANT = "mass"  # "mass" or "mole"
 # ----------------------------------------------------------------------------
 
 # CYCLE_SCALE_SPEC_MODE = "m6"
@@ -86,36 +98,36 @@ def build_example_inputs() -> AHTInputs:
     elif CYCLE_SCALE_SPEC_MODE == "Qabs":
         spec_kwargs["Qabs_spec_kW"] = 184.4  # 184.4, 6.9
     else:
-        raise ValueError("CYCLE_SCALE_SPEC_MODE muss 'm6' oder 'Qabs' sein.")
-    
+        raise ValueError("CYCLE_SCALE_SPEC_MODE must be 'm6' or 'Qabs'.")
+
     if ABSORBER_SPEC_MODE == "m11":
         spec_kwargs["m11_spec"] = 4  # 4, 0.2
     elif ABSORBER_SPEC_MODE == "T12":
         spec_kwargs["T12_spec_C"] = 146.02  # 146.02, 80
     else:
-        raise ValueError("ABSORBER_SPEC_MODE muss 'm11' oder 'T12' sein.")
+        raise ValueError("ABSORBER_SPEC_MODE must be 'm11' or 'T12'.")
 
     if DESORBER_SPEC_MODE == "m13":
-        spec_kwargs["m13_spec"] = 4  
+        spec_kwargs["m13_spec"] = 4
     elif DESORBER_SPEC_MODE == "T14":
         spec_kwargs["T14_spec_C"] = 108.92  # 108.92
     else:
-        raise ValueError("DESORBER_SPEC_MODE muss 'm13' oder 'T14' sein.")
-        
+        raise ValueError("DESORBER_SPEC_MODE must be 'm13' or 'T14'.")
+
     if EVAPORATOR_SPEC_MODE == "m15":
-        spec_kwargs["m15_spec"] = 4 
+        spec_kwargs["m15_spec"] = 4
     elif EVAPORATOR_SPEC_MODE == "T16":
         spec_kwargs["T16_spec_C"] = 108.80 # 108.80
     else:
-        raise ValueError("EVAPORATOR_SPEC_MODE muss 'm15' oder 'T16' sein.")
-    
+        raise ValueError("EVAPORATOR_SPEC_MODE must be 'm15' or 'T16'.")
+
     if CONDENSER_SPEC_MODE == "m17":
-        spec_kwargs["m17_spec"] = 4  
+        spec_kwargs["m17_spec"] = 4
     elif CONDENSER_SPEC_MODE == "T18":
         spec_kwargs["T18_spec_C"] = 41.26  # 41.26
     else:
-        raise ValueError("CONDENSER_SPEC_MODE muss 'm17' oder 'T18' sein.")
-    
+        raise ValueError("CONDENSER_SPEC_MODE must be 'm17' or 'T18'.")
+
 
     if DESORBER_EVAPORATOR_ROUTING_MODE == "parallel":
         common_kwargs["T_13_C"] = 120.0   # 120,60, 65
@@ -128,8 +140,8 @@ def build_example_inputs() -> AHTInputs:
         common_kwargs["T_15_C"] = 120.0 # 120, 65
     else:
         raise ValueError(
-            "DESORBER_EVAPORATOR_ROUTING_MODE muss 'parallel', "
-            "'series_desorber_to_evaporator' oder 'series_evaporator_to_desorber' sein."
+            "DESORBER_EVAPORATOR_ROUTING_MODE must be 'parallel', "
+            "'series_desorber_to_evaporator', or 'series_evaporator_to_desorber'."
         )
 
     return AHTInputs(
@@ -140,11 +152,11 @@ def build_example_inputs() -> AHTInputs:
 if __name__ == "__main__":
     inputs = build_example_inputs()
 
-    # Startvektor in der Reihenfolge:
+    # Initial vector in the order:
     # [T8, T10, x3, x6, x20, T2, T4]
     #
-    # Benutzerangabe der Temperatur-Startwerte in °C.
-    # Die Konvertierung in die internen Modell-Einheiten [K] erfolgt direkt darunter.
+    # Temperature initial guesses given by the user in degC.
+    # Conversion to the internal model units [K] happens directly below.
     x0 = primary_temperatures_C_to_K(
         np.array(
             [

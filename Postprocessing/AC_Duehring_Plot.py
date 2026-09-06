@@ -1,39 +1,41 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Dühring-Diagramm-Überlagerung für AC-Betriebspunkte.
+"""Duehring diagram overlay for AC operating points.
 
-Analogon zu Postprocessing/AHT_Duehring_Plot.py, aber für die
-Absorptionskältemaschine. Die generische Diagrammgrundlage (Isosteren nach
-Pátek & Klomfar, Kristallisationsgrenze nach Albers/Boryta, Achsen/Gitter)
-wird UNVERÄNDERT von dort importiert (create_duehring_figure) -- nur die
-Positionierung des Betriebspunkts im Diagramm ist AC-spezifisch, weil die
-AC eine andere Zuordnung von Zustandsnummern zu Druckniveaus hat als der AHT
-(siehe Docstring von AC_feasibility_sweep.py, Abschnitt "Rollentausch").
+Analog of Postprocessing/AHT_Duehring_Plot.py, but for the absorption
+chiller. The generic diagram base (isosteres per Patek & Klomfar,
+crystallization limit per Albers/Boryta, axes/grid) is imported
+UNCHANGED from there (create_duehring_figure) -- only the positioning of
+the operating point in the diagram is AC-specific, because the AC has a
+different mapping of state numbers to pressure levels than the AHT (see
+the docstring of AC_feasibility_sweep.py, section "Role swap").
 
-Sechseck-Geometrie (Analogon zum AHT-Sechseck, siehe AHT_Duehring_Plot.py)
+Hexagon geometry (analog of the AHT hexagon, see AHT_Duehring_Plot.py)
 ----------------------------------------------------------------------------
-Bei der AC sind Desorber + Kondensator auf der HOHEN Druckseite, Absorber +
-Verdampfer auf der NIEDRIGEN -- genau umgekehrt zum AHT. Das vertauscht auch,
-welche state-IDs die "reinen Wasser"-Eckpunkte des Sechsecks liefern:
-    AHT: Zustand 8 -> p_low,  Zustand 10 -> p_high
-    AC: Zustand 8 -> p_high, Zustand 10 -> p_low
-(Beides sind bei beiden Modellen per Definition Sättigungszustände von reinem
-Wasser -- Kondensatoraustritt Q=0 bzw. Verdampferaustritt Q=1 -- daher direkt
-als y-Koordinate im Dühring-Diagramm nutzbar, ohne Umrechnung.)
+For the AC, desorber + condenser are on the HIGH pressure side, absorber
++ evaporator on the LOW side -- exactly reversed from the AHT. This also
+swaps which state IDs provide the "pure water" corner points of the
+hexagon:
+    AHT: state 8 -> p_low,  state 10 -> p_high
+    AC:  state 8 -> p_high, state 10 -> p_low
+(In both models these are, by definition, pure-water saturation states --
+condenser outlet Q=0 and evaporator outlet Q=1 respectively -- so they can
+be used directly as the y-coordinate in the Duehring diagram without
+conversion.)
 
-Die beiden Lösungs-Isosteren der AC:
-    - Schwache Lösung (x1 = x3): Zustand 1 (p_low, Absorberaustritt) und
-      Zustand 3 (p_high, nach SHEX-Vorwärmung, Desorbereintritt)
-    - Starke Lösung (x4 = x6): Zustand 4 (p_high, Desorberaustritt) und
-      Zustand 6 (p_low, nach SHEX-Abkühlung + Drossel, Absorbereintritt)
+The AC's two solution isosteres:
+    - Weak solution (x1 = x3): state 1 (p_low, absorber outlet) and
+      state 3 (p_high, after SHEX preheating, desorber inlet)
+    - Strong solution (x4 = x6): state 4 (p_high, desorber outlet) and
+      state 6 (p_low, after SHEX cooling + throttle, absorber inlet)
 
-Sechseck-Reihenfolge (analog zur AHT-Struktur: starke Isostere rauf, schwache
-Isostere bei Hochdruck, Wasser-Ecke Hochdruck, Wasser-Ecke Niederdruck,
-schwache Isostere bei Niederdruck, zurück zur starken Isostere):
-    6 (stark, p_low) -> 4 (stark, p_high) -> 3 (schwach, p_high) ->
-    8 (Wasser, p_high) -> 10 (Wasser, p_low) -> 1 (schwach, p_low) -> 6
+Hexagon order (analogous to the AHT structure: strong isostere up, weak
+isostere at high pressure, water corner at high pressure, water corner at
+low pressure, weak isostere at low pressure, back to the strong isostere):
+    6 (strong, p_low) -> 4 (strong, p_high) -> 3 (weak, p_high) ->
+    8 (water, p_high) -> 10 (water, p_low) -> 1 (weak, p_low) -> 6
 
-Nutzung
+Usage
 -------
     from Postprocessing.AC_Duehring_Plot import plot_duehring_multi_operating_points
 """
@@ -46,12 +48,12 @@ from typing import Iterable, Literal, Optional, Tuple
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
-from Postprocessing.AHT_Duehring_Plot import create_duehring_figure, run_self_checks
-from Models.AC_Pinch_Point import AHTResult, kelvin_to_celsius
+from Postprocessing.Duehring_Plot import create_duehring_figure, run_self_checks
+from Models.AC_Pinch_Point import ACResult, kelvin_to_celsius
 import Thermodynamic_Properties.libr_props as lp
 
 
-# Geschlossener Prozesszug (siehe Modul-Docstring)
+# Closed process loop (see module docstring)
 _HEXAGON_STATE_ORDER: Tuple[str, ...] = (
     "6",
     "4",
@@ -62,22 +64,23 @@ _HEXAGON_STATE_ORDER: Tuple[str, ...] = (
     "6",
 )
 
-# Zusätzliche Linien:
-# 1 -> 3 : Isostere der schwachen Lösung
-# 4 -> 6 : Isostere der starken Lösung
+# Additional lines:
+# 1 -> 3 : isostere of the weak solution
+# 4 -> 6 : isostere of the strong solution
 _DIAGONAL_STATE_PAIR_WEAK: Tuple[str, str] = ("1", "3")
 _DIAGONAL_STATE_PAIR_STRONG: Tuple[str, str] = ("4", "6")
 
 
-def _operating_point_positions(result: AHTResult) -> dict[str, Tuple[float, float]]:
-    """Bestimmt die Positionen des AC-Betriebspunkts im Dühring-Diagramm.
+def _operating_point_positions(result: ACResult) -> dict[str, Tuple[float, float]]:
+    """Determines the positions of the AC operating point in the Duehring
+    diagram.
 
-    Wie beim AHT-Analogon: x-Koordinaten der Lösungspunkte kommen
-    ausschliesslich aus Druck + LiBr-Konzentration über die
-    Gleichgewichtstemperatur T_eq = T_sat_solution_from_p_x(p, x) -- damit
-    liegen 1/3 exakt auf der Isostere der schwachen, 4/6 exakt auf der
-    Isostere der starken Lösung. y-Koordinate = Tautemperatur von reinem
-    Wasser beim jeweiligen Druck."""
+    As in the AHT analog: x-coordinates of the solution points come
+    exclusively from pressure + LiBr concentration via the equilibrium
+    temperature T_eq = T_sat_solution_from_p_x(p, x) -- so 1/3 sit exactly
+    on the weak-solution isostere, 4/6 exactly on the strong-solution
+    isostere. y-coordinate = dew temperature of pure water at the
+    respective pressure."""
 
     s = result.states
 
@@ -117,7 +120,7 @@ def _operating_point_positions(result: AHTResult) -> dict[str, Tuple[float, floa
 
 
 def plot_duehring_multi_operating_points(
-    entries: Iterable[Tuple[float, AHTResult]],
+    entries: Iterable[Tuple[float, ACResult]],
     *,
     variant: Literal["mole", "mass"] = "mass",
     show: bool = True,
@@ -125,33 +128,33 @@ def plot_duehring_multi_operating_points(
     dpi: int = 300,
     run_checks: bool = False,
     cmap_name: str = "coolwarm",
-    title: str = "AC – Dühring-Diagramm, mehrere Rückkühltemperaturen",
+    title: str = "AC - Duehring diagram, multiple reject-cooling temperatures",
 ):
-    """Zeichnet mehrere AC-Betriebspunkte (je ein (T_rueck_C, AHTResult)-Paar
-    aus `entries`) als farblich unterschiedene Sechsecke in ein gemeinsames
-    Dühring-Diagramm. Analogon zu
+    """Draws multiple AC operating points (one (T_recool_C, ACResult) pair
+    each from `entries`) as differently colored hexagons in a shared
+    Duehring diagram. Analog of
     AHT_Duehring_Plot.plot_duehring_multi_operating_points().
 
     Parameters
     ----------
     entries:
-        Iterable von (T_rueck_C, result)-Paaren. result muss von solve_aht()
-        (Models.AC_Pinch_Point) stammen. T_rueck_C wird NUR für die
-        Farbzuordnung (Verlauf kalt->warm) und die Legendenbeschriftung
-        verwendet.
+        Iterable of (T_recool_C, result) pairs. result must come from
+        solve_ac() (Models.AC_Pinch_Point). T_recool_C is used ONLY for
+        the color mapping (cold->warm gradient) and the legend label.
     cmap_name:
-        Matplotlib-Colormap für die Farbzuordnung nach T_rueck_C.
-        "coolwarm" bildet niedrige Rückkühltemperaturen blau und hohe rot ab.
+        Matplotlib colormap for the color mapping by T_recool_C.
+        "coolwarm" maps low reject-cooling temperatures to blue and high
+        ones to red.
     """
     entries = sorted(entries, key=lambda e: e[0])
     if not entries:
-        raise ValueError("plot_duehring_multi_operating_points: entries ist leer.")
+        raise ValueError("plot_duehring_multi_operating_points: entries is empty.")
 
-    for T_rueck_C, result in entries:
+    for T_recool_C, result in entries:
         if not result.solve_info.final_point_evaluable:
             raise ValueError(
-                f"Dühring-Diagramm kann nicht erzeugt werden: Endpunkt bei "
-                f"T_rueck={T_rueck_C:.2f} °C ist nicht physikalisch auswertbar "
+                f"Cannot produce the Duehring diagram: the end point at "
+                f"T_recool={T_recool_C:.2f} °C is not physically evaluable "
                 "(result.solve_info.final_point_evaluable=False)."
             )
 
@@ -168,15 +171,15 @@ def plot_duehring_multi_operating_points(
     process_handles: list[Line2D] = []
     process_labels: list[str] = []
 
-    for T_rueck_C, result in entries:
-        color = cmap((T_rueck_C - T_lo) / T_span)
+    for T_recool_C, result in entries:
+        color = cmap((T_recool_C - T_lo) / T_span)
         positions = _operating_point_positions(result)
 
         xs_hex = [positions[sid][0] for sid in _HEXAGON_STATE_ORDER]
         ys_hex = [positions[sid][1] for sid in _HEXAGON_STATE_ORDER]
         (cycle_handle,) = ax.plot(
             xs_hex, ys_hex, "o-", color=color, linewidth=2.0, markersize=4.5,
-            zorder=12, label=f"T_rueck = {T_rueck_C:.0f} °C",
+            zorder=12, label=f"T_recool = {T_recool_C:.0f} °C",
         )
 
         for pair in (_DIAGONAL_STATE_PAIR_WEAK, _DIAGONAL_STATE_PAIR_STRONG):
@@ -185,7 +188,7 @@ def plot_duehring_multi_operating_points(
             ax.plot(x_pair, y_pair, "--", color=color, linewidth=1.1, alpha=0.85, zorder=11)
 
         process_handles.append(cycle_handle)
-        process_labels.append(f"T_rueck = {T_rueck_C:.0f} °C")
+        process_labels.append(f"T_recool = {T_recool_C:.0f} °C")
 
     existing_legend = ax.get_legend()
     if existing_legend is not None:
@@ -198,8 +201,6 @@ def plot_duehring_multi_operating_points(
         handles=handles, labels=labels_,
         loc="upper left", frameon=True, framealpha=0.94, fontsize=8.5,
     )
-
-    fig.suptitle(title, fontsize=13, fontweight="bold", y=0.995)
 
     if save_path is not None:
         path = Path(save_path)

@@ -1,17 +1,21 @@
-"""Einstiegspunkt für die AHT-Simulation mit 8 primären Unbekannten.
+"""Entry point for the AHT simulation with 7 primary unknowns (UA/LMTD formulation).
 
-Die Absorber-Spezifikation ist explizit wählbar:
-- ABSORBER_SPEC_MODE = "m11"  -> m11_spec vorgeben, T12 wird berechnet
-- ABSORBER_SPEC_MODE = "T12"  -> T12_spec_C vorgeben, m11 wird berechnet
+Absorber specification is explicitly selectable:
+- ABSORBER_SPEC_MODE = "m11" -> give m11_spec, T12 is computed
+- ABSORBER_SPEC_MODE = "T12" -> give T12_spec_C, m11 is computed
 
-Die Kreislaufskalierung ist explizit wählbar:
-- CYCLE_SCALE_SPEC_MODE = "m6"   -> m6_spec vorgeben
-- CYCLE_SCALE_SPEC_MODE = "Qabs" -> Qabs_spec_kW vorgeben, m6 wird berechnet
+Cycle scaling is explicitly selectable:
+- CYCLE_SCALE_SPEC_MODE = "m6"   -> give m6_spec
+- CYCLE_SCALE_SPEC_MODE = "Qabs" -> give Qabs_spec_kW, m6 is computed
 
-Die externe thermische Verschaltung von Desorber und Verdampfer ist wählbar:
-- DESORBER_EVAPORATOR_ROUTING_MODE = "parallel" -> T_13_C und T_15_C werden vorgegeben
-- DESORBER_EVAPORATOR_ROUTING_MODE = "series_desorber_to_evaporator" -> intern gilt T15 = T14
-- DESORBER_EVAPORATOR_ROUTING_MODE = "series_evaporator_to_desorber" -> intern gilt T13 = T16
+SHEX modeling is explicitly selectable:
+- SHEX_MODEL_MODE = "UA"  -> give UA_shex
+- SHEX_MODEL_MODE = "NTU" -> give Effectiveness_shex
+
+External thermal routing of desorber and evaporator is selectable:
+- DESORBER_EVAPORATOR_ROUTING_MODE = "parallel" -> T_13_C and T_15_C are given
+- DESORBER_EVAPORATOR_ROUTING_MODE = "series_desorber_to_evaporator" -> internally T15 = T14
+- DESORBER_EVAPORATOR_ROUTING_MODE = "series_evaporator_to_desorber" -> internally T13 = T16
 """
 
 from __future__ import annotations
@@ -38,7 +42,7 @@ SHEX_MODEL_MODE = "UA"
 
 DESORBER_EVAPORATOR_ROUTING_MODE = "parallel"
 #DESORBER_EVAPORATOR_ROUTING_MODE = "series_desorber_to_evaporator"
-# DESORBER_EVAPORATOR_ROUTING_MODE = "series_evaporator_to_desorber"ö
+# DESORBER_EVAPORATOR_ROUTING_MODE = "series_evaporator_to_desorber"
 
 def build_example_inputs() -> AHTInputs:
     common_kwargs = dict(
@@ -65,7 +69,7 @@ def build_example_inputs() -> AHTInputs:
         common_kwargs["Effectiveness_shex"] = 0.9
     else:
         raise ValueError(
-            "SHEX_MODEL_MODE muss 'UA' oder 'NTU' sein."
+            "SHEX_MODEL_MODE must be 'UA' or 'NTU'."
         )
 
     if DESORBER_EVAPORATOR_ROUTING_MODE == "parallel":
@@ -79,8 +83,8 @@ def build_example_inputs() -> AHTInputs:
         common_kwargs["T_15_C"] = 120.0 # 120, 65
     else:
         raise ValueError(
-            "DESORBER_EVAPORATOR_ROUTING_MODE muss 'parallel', "
-            "'series_desorber_to_evaporator' oder 'series_evaporator_to_desorber' sein."
+            "DESORBER_EVAPORATOR_ROUTING_MODE must be 'parallel', "
+            "'series_desorber_to_evaporator', or 'series_evaporator_to_desorber'."
         )
 
     spec_kwargs: dict[str, float] = {}
@@ -90,14 +94,14 @@ def build_example_inputs() -> AHTInputs:
     elif ABSORBER_SPEC_MODE == "T12":
         spec_kwargs["T12_spec_C"] = 146  # 146, 80
     else:
-        raise ValueError("ABSORBER_SPEC_MODE muss 'm11' oder 'T12' sein.")
+        raise ValueError("ABSORBER_SPEC_MODE must be 'm11' or 'T12'.")
 
     if CYCLE_SCALE_SPEC_MODE == "m6":
         spec_kwargs["m6_spec"] = 1  # 1, 0.05, 0.236
     elif CYCLE_SCALE_SPEC_MODE == "Qabs":
         spec_kwargs["Qabs_spec_kW"] = 500.4  # 184, 6.9
     else:
-        raise ValueError("CYCLE_SCALE_SPEC_MODE muss 'm6' oder 'Qabs' sein.")
+        raise ValueError("CYCLE_SCALE_SPEC_MODE must be 'm6' or 'Qabs'.")
 
     return AHTInputs(
         **common_kwargs,
@@ -108,11 +112,11 @@ def build_example_inputs() -> AHTInputs:
 if __name__ == "__main__":
     inputs = build_example_inputs()
 
-    # Startvektor in der Reihenfolge:
+    # Initial vector in the order:
     # [T8, T10, x3, x6, x20, T2, T4]
     #
-    # Benutzerangabe der Temperatur-Startwerte in °C.
-    # Die Konvertierung in die internen Modell-Einheiten [K] erfolgt direkt darunter.
+    # Temperature initial guesses given by the user in degC.
+    # Conversion to the internal model units [K] happens directly below.
     x0 = primary_temperatures_C_to_K(
         np.array(
             [

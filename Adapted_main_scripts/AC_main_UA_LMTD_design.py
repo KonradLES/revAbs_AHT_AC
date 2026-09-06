@@ -1,17 +1,21 @@
-"""Einstiegspunkt für die AC-Simulation mit 8 primären Unbekannten.
+"""Entry point for the AC simulation with 6 primary unknowns (UA/LMTD formulation).
 
-Die Absorber-Spezifikation ist explizit wählbar:
-- ABSORBER_SPEC_MODE = "m11"  -> m11_spec vorgeben, T12 wird berechnet
-- ABSORBER_SPEC_MODE = "T12"  -> T12_spec_C vorgeben, m11 wird berechnet
+Evaporator specification is explicitly selectable:
+- EVAPORATOR_SPEC_MODE = "m17" -> give m17_spec, T18 is computed
+- EVAPORATOR_SPEC_MODE = "T18" -> give T18_spec_C, m17 is computed
 
-Die Kreislaufskalierung ist explizit wählbar:
-- CYCLE_SCALE_SPEC_MODE = "m6"   -> m6_spec vorgeben
-- CYCLE_SCALE_SPEC_MODE = "Qabs" -> Qabs_spec_kW vorgeben, m6 wird berechnet
+Cycle scaling is explicitly selectable:
+- CYCLE_SCALE_SPEC_MODE = "m1"   -> give m1_spec
+- CYCLE_SCALE_SPEC_MODE = "Qeva" -> give Qevap_spec_kW, m1 is computed
 
-Die externe thermische Verschaltung von Desorber und Verdampfer ist wählbar:
-- DESORBER_EVAPORATOR_ROUTING_MODE = "parallel" -> T_13_C und T_15_C werden vorgegeben
-- DESORBER_EVAPORATOR_ROUTING_MODE = "series_desorber_to_evaporator" -> intern gilt T15 = T14
-- DESORBER_EVAPORATOR_ROUTING_MODE = "series_evaporator_to_desorber" -> intern gilt T13 = T16
+SHEX modeling is explicitly selectable:
+- SHEX_MODEL_MODE = "UA"  -> give UA_shex
+- SHEX_MODEL_MODE = "NTU" -> give Effectiveness_shex
+
+External thermal routing of absorber and condenser is selectable:
+- ABSORBER_CONDENSER_ROUTING_MODE = "parallel" -> T_13_C and T_15_C are given
+- ABSORBER_CONDENSER_ROUTING_MODE = "series_absorber_to_condenser" -> internally T15 = T14
+- ABSORBER_CONDENSER_ROUTING_MODE = "series_condenser_to_absorber" -> internally T13 = T16
 """
 
 from __future__ import annotations
@@ -70,7 +74,7 @@ def build_example_inputs() -> ACInputs:
         common_kwargs["Effectiveness_shex"] = 0.9
     else:
         raise ValueError(
-            "SHEX_MODEL_MODE muss 'UA' oder 'NTU' sein."
+            "SHEX_MODEL_MODE must be 'UA' or 'NTU'."
         )
 
     if ABSORBER_CONDENSER_ROUTING_MODE == "parallel":
@@ -84,8 +88,8 @@ def build_example_inputs() -> ACInputs:
         common_kwargs["T_15_C"] = 25.0 # 120, 65
     else:
         raise ValueError(
-            "ABSORBER_CONDENSER_ROUTING_MODE muss 'parallel', "
-            "'series_absorber_to_condenser' oder 'series_condenser_to_absorber' sein."
+            "ABSORBER_CONDENSER_ROUTING_MODE must be 'parallel', "
+            "'series_absorber_to_condenser', or 'series_condenser_to_absorber'."
         )
 
     spec_kwargs: dict[str, float] = {}
@@ -95,14 +99,14 @@ def build_example_inputs() -> ACInputs:
     elif EVAPORATOR_SPEC_MODE == "T18":
         spec_kwargs["T18_spec_C"] = 5  # 146, 80
     else:
-        raise ValueError("EVAPORATOR_SPEC_MODE muss 'm17' oder 'T18' sein.")
+        raise ValueError("EVAPORATOR_SPEC_MODE must be 'm17' or 'T18'.")
 
     if CYCLE_SCALE_SPEC_MODE == "m1":
         spec_kwargs["m1_spec"] =  0.166634  # 1, 0.05, 0.236
     elif CYCLE_SCALE_SPEC_MODE == "Qeva":
         spec_kwargs["Qevap_spec_kW"] = 40.9  # 184, 6.9
     else:
-        raise ValueError("CYCLE_SCALE_SPEC_MODE muss 'm1' oder 'Qeva' sein.")
+        raise ValueError("CYCLE_SCALE_SPEC_MODE must be 'm1' or 'Qeva'.")
 
     return ACInputs(
         **common_kwargs,
@@ -113,11 +117,11 @@ def build_example_inputs() -> ACInputs:
 if __name__ == "__main__":
     inputs = build_example_inputs()
 
-    # Startvektor in der Reihenfolge:
+    # Initial vector in the order:
     # [T8, T10, x4, x1, T3, T5]
     #
-    # Benutzerangabe der Temperatur-Startwerte in °C.
-    # Die Konvertierung in die internen Modell-Einheiten [K] erfolgt direkt darunter.
+    # Temperature initial guesses given by the user in degC.
+    # Conversion to the internal model units [K] happens directly below.
     x0 = primary_temperatures_C_to_K(
         np.array(
             [

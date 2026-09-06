@@ -1,109 +1,84 @@
-"""Schnelle Pinch-Feasibility-Karte für die AC -- NUR Simulation, KEINE Optimierung.
+"""Fast pinch feasibility map for the AC -- simulation ONLY, NO optimization.
 
-Analogon zu AHT_feasibility_sweep.py, aber für die Absorptionskältemaschine.
+Analog of AHT_feasibility_sweep.py, but for the absorption chiller.
 
-Kalibrierungsstand (WICHTIG vor dem ersten eigenen Lauf lesen)
+Calibration status (IMPORTANT, read before your first run)
 ------------------------------------------------------------------
-Zwei reale Ursachen wurden gefunden und hier behoben (keine reine
-Approach-Kalibrierung, wie in einer früheren Version dieses Kommentars
-vermutet):
+Two real root causes were found and fixed:
 
-1) Models.AC_Pinch_Point.initial_guess() setzte den Kaltstart-Schätzwert
-   ursprünglich auf x4=0.22, x1=0.243 -- also x4 < x1, bereits VERKEHRT herum
-   relativ zur überall geforderten Konzentrationshierarchie x4 > x1
-   (Desorber-Austritt muss konzentrierter sein als Absorber-Austritt). Von
-   diesem Startpunkt aus blieb der Solver praktisch immer auf dem falschen
-   Zweig hängen ("Konzentrationshierarchie verletzt" oder ein
-   Scheinkonvergenzpunkt mit Residuum >> 0), egal wie klein die Suchschritte
-   waren -- ein reiner Kontinuitäts-Walk kann eine falsche Wurzel nicht
-   reparieren. INZWISCHEN IN Models/AC_Pinch_Point.py SELBST BEHOBEN (x4/x1
-   dort vertauscht) -- dieses Skript ruft initial_guess() deshalb wieder
-   direkt auf, ohne eigene Korrektur. Mit diesem einen Fix konvergieren die
-   allermeisten Punkte bereits ohne jede weitere Klimmzüge auf Residuum
-   ~1e-10.
-2) Der Verdampfer hat eine harte Modellgrenze T10 >= 1 °C (kein Eis
-   modelliert). Bei T18_spec_C=5.0 und dT_min_evap=5.0 wird die interne
-   Verdampfungstemperatur rechnerisch auf ~0 °C gezwungen -- exakt auf/unter
-   dieser Grenze, also strukturell unlösbar. AC_design_point_optimizer.py
-   verwendet deshalb selbst schon einen kleineren Verdampfer-Pinch (Floor
-   3.0 K) als die übrigen Wärmeübertrager; dT_min_evap sollte generell
-   spürbar kleiner als (T18_spec_C - 1 °C) bleiben.
-Ebenfalls wichtig: dT_approach_evap_C bestimmt T17 = T18_spec_C +
-dT_approach_evap_C, und Models.AC_Pinch_Point.initial_guess() schätzt daraus
-T10 ~= T17 - 8 K -- bei T17 < ca. 9 °C verletzt schon dieser Schätzwert die
-obige 1°C-Grenze. dT_approach_evap_C deshalb bei niedrigem T18_spec_C nicht
-zu klein wählen (>= 5.0 empfohlen).
-Unterschied zu AC_design_point_optimizer.py
+1) Models.AC_Pinch_Point.initial_guess() used to start at x4=0.22,
+   x1=0.243 -- backwards relative to the required x4 > x1 concentration
+   hierarchy, which reliably stuck the solver on the wrong branch. FIXED
+   in Models/AC_Pinch_Point.py itself; this script calls initial_guess()
+   directly with no extra correction. Most points now converge to
+   residual ~1e-10 with no further effort.
+2) The evaporator has a hard model limit T10 >= 1 °C (no ice modeled). At
+   T18_spec_C=5.0 and dT_min_evap=5.0 the internal evaporation temperature
+   is arithmetically forced to ~0 °C -- structurally unsolvable. Keep
+   dT_min_evap noticeably below (T18_spec_C - 1 °C).
+Also: dT_approach_evap_C sets T17 = T18_spec_C + dT_approach_evap_C, and
+initial_guess() estimates T10 ~= T17 - 8 K from that -- below T17 ~9 °C
+this guess alone already violates the 1 °C limit. Don't pick
+dT_approach_evap_C too small at low T18_spec_C (>= 5.0 recommended).
+
+Difference from AC_design_point_optimizer.py
 --------------------------------------------
-Der Bilevel-Optimierer dort minimiert Sum(UA) über 5 dT_min-Werte je
-Betriebspunkt (DE + Nelder-Mead) -- mächtig, aber teuer (Minuten pro Punkt).
-Für die Frage "wie heiss muss mein Antriebswasser bei einer gegebenen
-Rückkühltemperatur mindestens sein" ist das Overkill.
+The bilevel optimizer there minimizes Sum(UA) over 5 dT_min values per
+point (DE + Nelder-Mead) -- powerful but expensive (minutes per point).
+For "how hot must my driving water be at minimum, at a given
+reject-cooling temperature", that's overkill.
 
-Dieses Skript hält dT_min FEST auf real angenommene/gebaute Pinch-Werte
-(kein Optimierungsziel!) und sucht für ein Raster von Rückkühltemperaturen
-(T13 = T15, parallele Verschaltung von Absorber und Kondensator) das GESAMTE
-feasible T11-Fenster [T11_min, T11_max] -- nicht nur das Minimum. Jeder Punkt
-kostet nur eine Handvoll solve_ac()-Aufrufe statt einer vollen DE-Suche.
+This script instead holds dT_min FIXED at realistic pinch values and, for
+a grid of reject-cooling temperatures (T13 = T15, parallel routing),
+finds the ENTIRE feasible T11 window [T11_min, T11_max] -- not just the
+minimum -- at a cost of a handful of solve_ac() calls per point.
 
-Rollentausch gegenüber dem AHT (wichtig für das Verständnis)
+Role swap vs. the AHT (important for understanding)
 --------------------------------------------------------------
-Bei der AC liegen die Druckniveaus GENAU UMGEKEHRT zum AWT: Desorber und
-Kondensator auf der HOHEN Druckseite, Absorber und Verdampfer auf der
-NIEDRIGEN. Das vertauscht auch, welche zwei Apparate ein gemeinsames
-externes Temperaturniveau teilen ("Paar") und welche zwei unabhängig
-spezifiziert werden ("Einzeln"):
+Pressure levels are EXACTLY REVERSED vs. the AC: desorber and condenser
+on the HIGH-pressure side, absorber and evaporator on the LOW-pressure
+side -- which also swaps which components share an external temperature
+("pair") vs. are independently specified ("single"):
 
-                    AWT (Wärmetransformator)   AC (Kältemaschine)
-    Paar (gemeinsame externe Temperatur):
-        Desorber + Verdampfer <-> T_waste       Absorber + Kondensator <-> T_rueck
-    Einzeln (unabhängig vorgegeben):
-        Absorber (Produkt)  : T11 -> T12         Desorber (Antrieb): T11 -> T12
-        Kondensator (Abwurf): T17 -> T18          Verdampfer (Produkt): T17 -> T18
+                    AHT (heat transformer)     AC (chiller)
+    Pair (shared external temperature):
+        Desorber + evaporator <-> T_waste       Absorber + condenser <-> T_reject
+    Single (independently given):
+        Absorber (product)  : T11 -> T12         Desorber (drive): T11 -> T12
+        Condenser (reject)  : T17 -> T18          Evaporator (product): T17 -> T18
 
-Deshalb wird hier -- als Analogon zu T_waste beim AWT -- die Rückkühl-
-temperatur T_rueck (= T13 = T15) durchfahren, T18 (Verdampferaustritt,
-"Nutzkälte") bleibt FEST, und gesucht wird das Fenster der Generator-
-eintrittstemperatur T11 (Desorber-Antrieb) -- direktes Analogon zum
-T12-Fenster beim AWT, nur dass hier T11 (statt T12) die frei variierte,
-unabhängige Eingangsgrösse ist: T12 wird für jeden Kandidaten T11 über einen
-festen Approach (dT_approach_des_C) mitgeführt, T11 selbst bleibt der
-Suchparameter (siehe _build_inputs).
+Hence this script sweeps the reject-cooling temperature T_reject (=T13=T15,
+the AC's analog of T_waste), holds T18 (useful cooling) fixed, and
+searches for the generator inlet window T11 (desorber drive) -- the
+analog of the AC's T12 window, except T11 itself is the free search
+variable here (T12 follows via a fixed approach, dT_approach_des_C; see
+_build_inputs).
 
-Wichtig zu wissen für die Interpretation
-------------------------------------------
-- Anders als beim AWT (wo T11 auf die interne Machbarkeit praktisch keinen
-  Einfluss hat) bestimmt T11 hier UNMITTELBAR das Desorber-Gleichgewicht
-  (höheres T11 -> höhere Konzentration x4 möglich) und damit auch, wie nah
-  die Anlage an ihrer Kristallisationsgrenze operiert (state "6", der
-  kälteste Punkt mit voller Konzentration x4, kurz vor dem Absorber). Ein zu
-  NIEDRIGES T11 macht die Anlage pinch-/druckseitig infeasible (T11_min, die
-  hier interessierende Grösse); ein zu HOHES T11 kann umgekehrt
-  Kristallisation am SHEX-Austritt provozieren (T11_max). Das Fenster
-  [T11_min, T11_max] kann sich daher -- anders als beim AWT, wo "kleiner
-  Pinch überall" immer das grösstmögliche Fenster ergibt -- bei sehr tiefen
-  Rückkühltemperaturen von OBEN her schliessen.
-- Der Solver-Warmstart (x0) hat nur ein schmales Einzugsgebiet (oft nur
-  ~2-4 K in T11, teils auch in T_rueck selbst). Ein zu grosser Sprung lässt
-  den Solver in einem Scheinkonvergenzpunkt landen (scipy meldet "success",
-  obwohl die Pinch-Residuen deutlich von 0 abweichen). Deshalb arbeiten alle
-  Suchfunktionen hier mit kleinschrittigem Kontinuitäts-Walk bzw. adaptiver
-  Homotopie (Schrittweite halbieren bei Fehlschlag, vergrössern bei Erfolg)
-  -- exakt analog zu AHT_feasibility_sweep.py, nur über T11/T_rueck statt
-  T12/T_waste.
-- Manche Fenster sind sehr schmal (<2 K) kurz bevor ein Betriebspunkt an
-  seine tatsächliche Machbarkeitsgrenze stösst. Ein zu grobes Suchraster
-  kann solche Fenster überspringen und fälschlich "nicht lösbar" melden.
+Important for interpretation
+------------------------------
+- Unlike the AC (T11 barely affects internal feasibility), T11 here
+  DIRECTLY sets the desorber equilibrium concentration x4, and hence how
+  close the plant runs to its crystallization limit (state "6", just
+  before the absorber). Too LOW a T11 makes the plant pinch-infeasible
+  (T11_min, the value of interest here); too HIGH a T11 can trigger
+  crystallization at the SHEX outlet (T11_max) -- so, unlike the AC, the
+  window [T11_min, T11_max] can close from ABOVE at low reject-cooling
+  temperatures.
+- The solver warm start has only a narrow basin of attraction (often just
+  ~2-4 K), so every search here uses a small-step continuation walk or
+  adaptive homotopy, exactly as in AHT_feasibility_sweep.py (over
+  T11/T_reject instead of T12/T_waste).
+- Windows can be very narrow (<2 K) just before a real feasibility limit
+  -- too coarse a search grid can skip them and wrongly report
+  "infeasible".
 
-Empfehlung
-----------
-Erst mit diesem Skript den Grobverlauf der nötigen Generatoreintritts-
-temperatur über T_rueck kartieren (moderate Pinch-/Approach-Werte, siehe
-Konfiguration unten). Erst für die 3-5 daraus ausgewählten, tatsächlich
-interessanten Betriebspunkte lohnt sich der volle UA-Optimierer
-(AC_design_point_optimizer.py).
+Recommendation
+---------------
+Use this script first to map the rough trend of required generator inlet
+temperature over T_reject. Only run the full UA optimizer
+(AC_design_point_optimizer.py) for the 3-5 points actually of interest.
 
-Aufruf als Skript
+Standalone usage
 -----------------
     python Design_Point/AC_feasibility_sweep.py
 """
@@ -131,38 +106,39 @@ from Models.AC_Pinch_Point import (
 RESIDUAL_TOL = 1.0e-6
 
 # ---------------------------------------------------------------------------
-# Konfiguration -- HIER ANPASSEN
+# Configuration
 # ---------------------------------------------------------------------------
 
 @dataclass
 class FeasibilitySweepConfig:
-    # --- Betriebspunkt-Randbedingungen -------------------------------------
-    T18_spec_C: float = 5.0     # 5.0 feste Verdampferaustrittstemperatur (Nutzkälte)
+    # --- Operating-point boundary conditions -------------------------------
+    T18_spec_C: float = 5.0     # 5.0 fixed evaporator outlet temperature (useful cooling)
     Qevap_spec_kW: float = 40.9
 
+    # --- Pinch values (design assumption, not an optimization target) ------
     dT_min_shex: float = 5.0
     dT_min_des: float = 5.0
     dT_min_cond: float = 5.0
-    dT_min_evap: float = 3.0    # T18 - dT_min_evap >= 0 °C, sonst Kaltstartfehler
+    dT_min_evap: float = 3.0    # T18 - dT_min_evap >= 0 °C, otherwise a cold-start failure
     dT_min_abs: float = 5.0
 
-    # --- Externe Approach-Werte (Design-Annahme) ----------------------------
+    # --- External approach values (design assumption) -----------------------
     dT_approach_des_C: float = 4.0 # 18.0
     dT_approach_abs_C: float = 3.0  # 7.0
     dT_approach_cond_C: float = 3.0 # 7.0
-    dT_approach_evap_C: float = 4.0 # 6.0 Wenn zu klein, kann T10 < 0 °C werden (harte Modellgrenze Verdampfer)
+    dT_approach_evap_C: float = 4.0 # 6.0 if too small, T10 can go below 0 °C (hard evaporator model limit)
 
     absorber_condenser_routing_mode: str = "parallel"
     cp_w_kJkgK: float = 4.18
     desorber_vapor_superheat_K: float = 0.0
 
     # -------------------------------------------------------------------
-    # Such-/Solver-Parameter 
+    # Search/solver parameters
     # -------------------------------------------------------------------
-    T11_search_margin_C: float = 40.0   # Startabstand oberhalb T_rueck (nur 1. Punkt, falls kein Dühring-Schätzwert)
-    T11_step_C: float = 2.0            # Expansionsschritt für die Fenstersuche
-    T11_bisect_tol_C: float = 0.2      # Abbruchbreite der Bisektion
-    max_expand_steps: int = 40         # bei T11_step_C=2.0 -> bis zu 80 K Reichweite
+    T11_search_margin_C: float = 40.0   # starting offset above T_reject (only for the 1st point, if no Duehring estimate)
+    T11_step_C: float = 2.0            # expansion step for the window search
+    T11_bisect_tol_C: float = 0.2      # bisection stopping width
+    max_expand_steps: int = 40         # at T11_step_C=2.0 -> up to 80 K reach
     max_bisect_steps: int = 25
 
     anchor_search_span_C: float = 60.0
@@ -172,11 +148,11 @@ class FeasibilitySweepConfig:
     probe_max_nfev: int = 300
 
 # ---------------------------------------------------------------------------
-# Such-Raster für den Sweep
+# Search grid for the sweep
 # ---------------------------------------------------------------------------
-T_RUECK_START_C = 15.0   # numerisch unproblematischer Startwert [°C]
-T_RUECK_END_C = 35.0     # höchste GEWÜNSCHTE Rückkühltemperatur [°C] 
-T_RUECK_STEP_C = 2.5     # Rasterabstand [K]
+T_REJECT_START_C = 15.0   # numerically unproblematic starting value [°C]
+T_REJECT_END_C = 35.0     # highest DESIRED reject-cooling temperature [°C]
+T_REJECT_STEP_C = 2.5     # grid spacing [K]
 
 plot_name = "AC_feasibility_sweep_ex_8_5_5_5"
 
@@ -201,7 +177,7 @@ class FeasibilityPoint:
 
 
 # ---------------------------------------------------------------------------
-# Solve-Hilfsfunktionen
+# Solve helper functions
 # ---------------------------------------------------------------------------
 
 def _build_inputs(
@@ -275,12 +251,9 @@ def _solve_raw(
     T_reject_C: float, T11_C: float, x0: np.ndarray, config: FeasibilitySweepConfig,
     *, fast: bool = True,
 ) -> Optional[ACResult]:
-    """Wie _try_solve(), gibt aber IMMER das Result zurück (auch wenn nicht
-    'valid' nach _is_valid_solution) -- nur None bei echtem Fehler
-    (ValueError/Exception). Für Warmstart-Ketten: der Lösungsvektor eines
-    nicht ganz konvergierten Solves ist meist trotzdem ein deutlich besserer
-    Startpunkt für den NÄCHSTEN, benachbarten Versuch als ein genereller
-    Heuristik-Guess -- siehe _locate_anchor()."""
+    """Like _try_solve(), but always returns the result (even if not
+    "valid") -- only None on a genuine error. Used for warm-start chains,
+    where even a non-converged solve's vector beats a generic guess."""
     try:
         inputs = _build_inputs(T_reject_C, T11_C, config, fast=fast)
     except ValueError:
@@ -292,17 +265,17 @@ def _solve_raw(
 
 
 # ---------------------------------------------------------------------------
-# Fensterbestimmung: [T11_min, T11_max] für eine gegebene Rückkühltemperatur
+# Window determination: [T11_min, T11_max] for a given reject-cooling temperature
 # ---------------------------------------------------------------------------
 
 def _locate_anchor(
     T_reject_C: float, config: FeasibilitySweepConfig, x0_seed: np.ndarray, guess_C: float,
 ) -> Tuple[Optional[float], Optional[ACResult]]:
-    """Sucht EINEN feasiblen T11-Wert, als Kontinuitäts-WALK in kleinen
-    Schritten von guess_C aus (beide Richtungen) -- NICHT als unabhängige
-    Sprünge mit demselben Startvektor. Siehe AHT_feasibility_sweep.py für
-    die ausführliche Begründung des Kontinuitätsprinzips."""
-    lo_bound = T_reject_C + 1.0e-3  # T11 muss über der Rückkühltemperatur liegen (Druckgefälle)
+    """Searches for ONE feasible T11 value, as a continuation WALK in small
+    steps from guess_C (both directions) -- NOT as independent jumps with
+    the same starting vector. See AC_feasibility_sweep.py for the detailed
+    rationale of the continuation principle."""
+    lo_bound = T_reject_C + 1.0e-3  # T11 must be above the reject-cooling temperature (pressure drop)
     step = config.anchor_search_step_C
     n_steps = max(1, int(round(config.anchor_search_span_C / step)))
 
@@ -320,12 +293,9 @@ def _locate_anchor(
 
             result = _solve_raw(T_reject_C, candidate, x0_walk, config)
             if result is None or not _is_valid_solution(result):
-                # Zusätzlich zum Kontinuitäts-Schritt IMMER auch einen
-                # frischen Kaltstart an genau diesem Kandidaten probieren --
-                # der verkettete Warmstart kann in Einzelfällen an einem
-                # ungünstigen Punkt hängen bleiben, ein frischer Kaltstart
-                # (initial_guess()) findet von dort oft leichter zurück auf
-                # den richtigen Zweig.
+                # Also try a fresh cold start here -- the chained warm
+                # start can get stuck at an unfavorable point that
+                # initial_guess() escapes more easily.
                 try:
                     fresh_inputs = _build_inputs(T_reject_C, candidate, config)
                     x0_fresh = initial_guess(fresh_inputs)
@@ -341,7 +311,7 @@ def _locate_anchor(
             if result is None:
                 continue
 
-            x0_walk = _x0_from_result(result)  # Kette weiterreichen, auch wenn nicht "valid"
+            x0_walk = _x0_from_result(result)  # keep chaining even if not "valid"
             if _is_valid_solution(result):
                 return candidate, result
 
@@ -352,9 +322,9 @@ def _bisect_boundary(
     feasible_T: float, x0_feasible: np.ndarray, infeasible_T: float,
     T_reject_C: float, config: FeasibilitySweepConfig,
 ) -> Tuple[float, np.ndarray]:
-    """Bisektiert zwischen einem bekannt feasiblen und einem bekannt
-    infeasiblen T11-Wert (Reihenfolge/Richtung beliebig) und gibt den
-    zuletzt feasiblen Wert + zugehörigen Warmstart-Vektor zurück."""
+    """Bisects between a known-feasible and a known-infeasible T11 value
+    (order/direction doesn't matter) and returns the last feasible value +
+    its associated warm-start vector."""
     lo_feasible, x0_lo = feasible_T, x0_feasible
     hi_infeasible = infeasible_T
     for _ in range(config.max_bisect_steps):
@@ -374,10 +344,9 @@ def _expand_and_bisect(
     anchor_T: float, x0_anchor: np.ndarray, direction: int,
     T_reject_C: float, config: FeasibilitySweepConfig,
 ) -> Tuple[float, np.ndarray]:
-    """Expandiert von anchor_T aus in Richtung `direction` (+1 = Maximum
-    suchen, -1 = Minimum suchen), bis infeasible, dann Bisektion auf die
-    Grenze. Bricht in Richtung -1 am harten Rand T_reject_C ab (T11 muss >
-    T_reject_C sein). Gibt (Grenzwert, zugehöriger Warmstart-Vektor) zurück."""
+    """Expands from anchor_T toward `direction` (+1=max, -1=min) until
+    infeasible, then bisects to the boundary. Stops at the hard edge
+    T_reject_C. Returns (boundary value, associated warm-start vector)."""
     lo_bound = T_reject_C + 1.0e-3
     feasible_T = anchor_T
     x0_feasible = x0_anchor
@@ -392,17 +361,15 @@ def _expand_and_bisect(
             x0_feasible = _x0_from_result(result)
         else:
             return _bisect_boundary(feasible_T, x0_feasible, candidate, T_reject_C, config)
-    return feasible_T, x0_feasible  # max_expand_steps erreicht, siehe Aufrufer-Warnung
+    return feasible_T, x0_feasible  # max_expand_steps reached, see the caller's warning
 
 
 def _refine_boundary(
     T_reject_C: float, T11_C: float, x0_seed: np.ndarray, config: FeasibilitySweepConfig,
 ) -> Optional[ACResult]:
-    """Ein abschliessender Solve mit strengen (ACInputs-Default-)Toleranzen
-    an einer per Fast-Probing gefundenen Fenstergrenze, für belastbare
-    KPIs/UA-Werte im zurückgegebenen Result. Fällt bei Fehlschlag auf den
-    gelockerten Solve zurück (Toleranzunterschied ist bei
-    T11_bisect_tol_C=0.2 K i.d.R. irrelevant)."""
+    """Final solve with strict tolerances at a boundary found via fast
+    probing, for reliable KPIs/UA values. Falls back to the relaxed
+    solve on failure."""
     ok, result = _try_solve(T_reject_C, T11_C, x0_seed, config, fast=False)
     if ok:
         return result
@@ -416,11 +383,9 @@ def find_feasible_window(
     x0_seed: np.ndarray,
     T11_anchor_guess_C: Optional[float] = None,
 ) -> FeasibilityPoint:
-    """Lokalisiert einen Anker und bestimmt davon ausgehend das gesamte
-    feasible T11-Fenster [T11_min, T11_max]. Die eigentliche Suche läuft mit
-    gelockerten Toleranzen (config.probe_*); an der gefundenen Minimum-
-    Grenze (die hier interessierende "minimale Generatoreintrittstemperatur")
-    wird danach streng nachgerechnet."""
+    """Locates an anchor, then determines the full feasible T11 window
+    [T11_min, T11_max] using relaxed tolerances; the minimum boundary is
+    then re-solved strictly."""
 
     guess = (
         T11_anchor_guess_C if T11_anchor_guess_C is not None
@@ -433,10 +398,9 @@ def find_feasible_window(
             T_reject_C=T_reject_C, T11_min_C=float("nan"), T11_max_C=float("nan"),
             dT_drive_min_K=float("nan"), dT_drive_max_K=float("nan"), feasible=False,
             message=(
-                f"Keine feasible Lösung bei T_rueck={T_reject_C:.2f} °C gefunden "
-                f"(Anker-Suche um {guess:.2f} °C ± {config.anchor_search_span_C:.0f} K) "
-                "-- dieser Betriebspunkt scheint ausserhalb des lösbaren Bereichs "
-                "zu liegen (siehe AC_duehring_screening.py zur Vorprüfung)."
+                f"No feasible solution found at T_reject={T_reject_C:.2f} °C "
+                f"(anchor search around {guess:.2f} °C +/- {config.anchor_search_span_C:.0f} K) "
+                "-- see AC_duehring_screening.py for a pre-check."
             ),
         )
 
@@ -456,15 +420,10 @@ def find_feasible_window(
 def _duehring_initial_guess_C(
     T_reject_C: float, config: FeasibilitySweepConfig, *, margin_C: float = 25.0
 ) -> Optional[float]:
-    """Liefert T_gen_min(Dühring-Screening) + margin_C als groben, aber
-    grössenordnungsmässig richtigen T11-Schätzwert für den allerersten Punkt
-    einer Suche. Ein generischer Schätzwert (z.B. T_reject_C+margin) kann bei
-    hoher Rückkühltemperatur um Grössenordnungen daneben liegen; margin_C>0,
-    weil das reale (Pinch-)Minimum über der optimistischen Dühring-
-    Untergrenze liegt, aber in derselben Grössenordnung. margin_C=25 ist kein
-    Kalibrierungs-Zufallswert: am Betriebspunkt T_rueck=25°C/T18=5°C lag das
-    reale Pinch-Modell-Minimum empirisch ca. 27 K über der optimistischen
-    Dühring-Schätzung (63 °C Dühring vs. ~90 °C real)."""
+    """Returns T_gen_min(Duehring) + margin_C as a rough T11 estimate for
+    the first search point. margin_C=25 is not arbitrary: at
+    T_reject=25°C/T18=5°C, the real pinch-model minimum was empirically
+    about 27 K above the optimistic Duehring estimate (63°C vs. ~90°C)."""
     try:
         from AC_duehring_screening import estimate_min_generator_temperature
     except ImportError:
@@ -476,15 +435,12 @@ def _duehring_initial_guess_C(
     T_evap_target_C = config.T18_spec_C - config.dT_min_evap
     try:
         duehring = estimate_min_generator_temperature(
-            T_evap_target_C=T_evap_target_C, T_rueck_C=T_reject_C,
+            T_evap_target_C=T_evap_target_C, T_recool_C=T_reject_C,
             dT_min_des=config.dT_min_des, dT_min_cond=config.dT_min_cond, dT_min_abs=config.dT_min_abs,
         )
     except Exception:
-        # Die Dühring-Korrelationen (Patek) können an Rand-/Extremwerten
-        # (sehr niedriger Druck, Konzentration nahe 0) intern eine
-        # ValueError/PropertyError werfen -- dann einfach ohne Schätzwert
-        # weitermachen (Aufrufer fällt auf T_reject_C+Margin zurück) statt
-        # den ganzen Sweep abzubrechen.
+        # Patek correlations can raise at edge values -- skip the estimate,
+        # caller falls back to T_reject_C+margin.
         return None
     if duehring.feasible:
         return duehring.T_gen_min_C + margin_C
@@ -492,23 +448,19 @@ def _duehring_initial_guess_C(
 
 
 # ---------------------------------------------------------------------------
-# Sweep: adaptive Homotopie über T_rueck (empfohlene, robusteste Variante)
+# Sweep: adaptive homotopy over T_reject (recommended, most robust variant)
 # ---------------------------------------------------------------------------
 #
-# (T_rueck, T11) werden GEMEINSAM in kleinen, adaptiven Schritten bewegt
-# (dT_drive = T11 - T_rueck dabei näherungsweise konstant gehalten), mit
-# automatischer Schrittweitenhalbierung bei Fehlschlag und Vergrösserung bei
-# Erfolg -- notwendig, weil auch T_rueck-Sprünge von wenigen K die Warmstart-
-# Kette reissen lassen können, obwohl ausreichend Lösungsraum existiert
-# (Scheinkonvergenz: scipy meldet "success", aber die Pinch-Residuen weichen
-# deutlich von 0 ab). Siehe AHT_feasibility_sweep.py für das Vorbild.
+# (T_reject, T11) move together in small adaptive steps (holding
+# dT_drive = T11 - T_reject ~constant), step halved on failure / grown on
+# success. See AC_feasibility_sweep.py for the rationale.
 
 def _window_at_point(
     T_reject_C: float, config: FeasibilitySweepConfig, x0_seed: np.ndarray, anchor_guess_C: float,
 ) -> Optional[Tuple[FeasibilityPoint, np.ndarray]]:
-    """Wie find_feasible_window(), gibt aber zusätzlich den Warmstart-Vektor
-    am T11_min zurück (für die Fortsetzung der Homotopie zum nächsten
-    T_rueck-Ziel). None bei Fehlschlag der Anker-Suche."""
+    """Like find_feasible_window(), but also returns the warm-start vector at
+    T11_min (to continue the homotopy toward the next T_reject target). None
+    if the anchor search fails."""
     anchor_T, anchor_result = _locate_anchor(T_reject_C, config, x0_seed, anchor_guess_C)
     if anchor_T is None:
         return None
@@ -531,13 +483,11 @@ def _homotopy_walk_T_reject(
     config: FeasibilitySweepConfig,
     *, step_initial_C: float = 3.0, step_min_C: float = 0.25, max_steps: int = 200,
 ) -> Tuple[float, float, np.ndarray, bool]:
-    """Bewegt (T_rueck, T11) gemeinsam von (T_reject_from_C, T11_from_C) nach
-    T_reject_to_C, dT_drive = T11 - T_rueck dabei konstant gehalten.
-    Schrittweite wird bei Fehlschlag halbiert (Abbruch unter step_min_C ->
-    gibt den weitesten erreichten Punkt zurück, ein echter Umkehrpunkt),
-    bei Erfolg wieder vergrössert (gedeckelt auf step_initial_C).
+    """Moves (T_reject, T11) together toward T_reject_to_C, holding
+    dT_drive = T11 - T_reject constant. Step halved on failure (below
+    step_min_C returns the furthest point reached), grown on success.
 
-    Rückgabe: (T_rueck_erreicht, T11_erreicht, x0_erreicht, ziel_voll_erreicht)
+    Returns: (T_reject_reached, T11_reached, x0_reached, target_fully_reached)
     """
     dT_drive_hold = T11_from_C - T_reject_from_C
     direction = 1.0 if T_reject_to_C > T_reject_from_C else -1.0
@@ -574,11 +524,11 @@ def sweep_min_generator_temperature_homotopy(
     homotopy_step_initial_C: float = 3.0,
     homotopy_step_min_C: float = 0.25,
 ) -> List[FeasibilityPoint]:
-    """Bestimmt für jede Rückkühltemperatur in T_reject_values_C das feasible
-    T11-Fenster, mit adaptiver Homotopie ZWISCHEN den Rasterpunkten (siehe
-    Abschnitts-Docstring) -- die empfohlene, robusteste Variante.
-    T_reject_values_C in Wanderreihenfolge angeben (z.B. absteigend von
-    einem warmen, unproblematischen Startwert, siehe Modul-Docstring)."""
+    """Determines the feasible T11 window for each reject-cooling temperature
+    in T_reject_values_C, using adaptive homotopy BETWEEN grid points (see
+    the section docstring) -- the recommended, most robust variant. Give
+    T_reject_values_C in traversal order (e.g. descending from a warm,
+    unproblematic starting value, see the module docstring)."""
 
     points: List[FeasibilityPoint] = []
     T_reject_cur: Optional[float] = None
@@ -595,27 +545,19 @@ def sweep_min_generator_temperature_homotopy(
                 step_initial_C=homotopy_step_initial_C, step_min_C=homotopy_step_min_C,
             )
             if fully_reached:
-                # Sicherheitsabstand: reached_T11 kann (durch Bisektionstoleranz/
-                # Rundung) sehr nah an der T_reject-Grenze liegen -- ein Anker
-                # direkt auf der Grenze verpasst schmale Fenster. Anker bewusst
-                # spürbar oberhalb ansetzen.
+                # Anchor right on the boundary can miss narrow windows --
+                # push it slightly above.
                 anchor_guess_C = max(reached_T11, reached_T_reject + 1.0)
                 outcome = _window_at_point(reached_T_reject, config, reached_x0, anchor_guess_C)
                 reported_T_reject = reached_T_reject
             else:
-                # Diagonaler Kontinuitäts-Walk (dT_drive konstant) kann schon
-                # nach dem ersten Schritt hängen bleiben, wenn der Startpunkt
-                # T11_min selbst ein bisektierter Fenster-RAND ist (numerisch
-                # empfindlicher als ein Punkt im Fensterinneren) -- das ist
-                # KEIN Zeichen für echte Infeasibility am Ziel, siehe
-                # Modul-Docstring. Statt den hängengebliebenen Zwischenpunkt
-                # erneut zu melden, versuchen wir direkt am Ziel einen
-                # frischen, Dühring-geführten Anker (wie beim allerersten
-                # Punkt) -- das ist die robustere Fallback-Strategie.
+                # A stuck continuation walk isn't necessarily real
+                # infeasibility at the target (see module docstring) --
+                # fall back to a fresh, Duehring-guided anchor instead.
                 print(
-                    f"  [Homotopie] Ziel {T_reject_target:.2f} °C nicht per Kontinuitäts-Walk "
-                    f"erreicht (angehalten bei {reached_T_reject:.2f} °C) -- versuche frischen "
-                    "Anker direkt am Ziel."
+                    f"  [homotopy] target {T_reject_target:.2f} °C not reached via continuation "
+                    f"walk (stopped at {reached_T_reject:.2f} °C) -- trying a fresh anchor "
+                    "directly at the target."
                 )
 
         if outcome is None:
@@ -632,15 +574,15 @@ def sweep_min_generator_temperature_homotopy(
             points.append(FeasibilityPoint(
                 T_reject_C=reported_T_reject, T11_min_C=float("nan"), T11_max_C=float("nan"),
                 dT_drive_min_K=float("nan"), dT_drive_max_K=float("nan"), feasible=False,
-                message=f"Auch die Anker-Suche bei {reported_T_reject:.2f} °C fand keine Lösung.",
+                message=f"The anchor search at {reported_T_reject:.2f} °C also found no solution.",
             ))
-            print(f"[{i+1}/{len(T_reject_values_C)}] T_rueck={reported_T_reject:6.2f} °C -> FEHLGESCHLAGEN")
+            print(f"[{i+1}/{len(T_reject_values_C)}] T_reject={reported_T_reject:6.2f} °C -> FAILED")
             continue
 
         point, x0_min = outcome
         points.append(point)
         print(
-            f"[{i+1}/{len(T_reject_values_C)}] T_rueck={reported_T_reject:6.2f} °C -> "
+            f"[{i+1}/{len(T_reject_values_C)}] T_reject={reported_T_reject:6.2f} °C -> "
             f"T11 in [{point.T11_min_C:6.2f}, {point.T11_max_C:6.2f}] °C, "
             f"dT_drive in [{point.dT_drive_min_K:6.2f}, {point.dT_drive_max_K:6.2f}] K [OK]"
         )
@@ -653,13 +595,13 @@ def sweep_min_generator_temperature_homotopy(
 
 
 # ---------------------------------------------------------------------------
-# Ausgabe: Tabelle + Plot
+# Output: table + plot
 # ---------------------------------------------------------------------------
 
 def print_sweep_table(points: Sequence[FeasibilityPoint]) -> None:
     print("=" * 100)
     print(
-        f"{'T_rueck[C]':>10} {'T11_min[C]':>11} {'T11_max[C]':>11} "
+        f"{'T_reject[C]':>10} {'T11_min[C]':>11} {'T11_max[C]':>11} "
         f"{'dT_drv_min[K]':>13} {'dT_drv_max[K]':>13} {'Status':>8}"
     )
     print("-" * 100)
@@ -679,9 +621,9 @@ def plot_feasibility_sweep(
     save_path: Optional[str] = f"Design_Point/Plots/{plot_name}.png",
     show: bool = True,
 ):
-    """Plottet das feasible T11-Fenster vs. Rückkühltemperatur; optional
-    Vergleich mit der optimistischen Dühring-Untergrenze (Liste von
-    MinGenResult aus AC_duehring_screening.sweep_recool_temperature())."""
+    """Plots the feasible T11 window vs. reject-cooling temperature;
+    optionally compares against the optimistic Duehring lower bound (a list
+    of MinGenResult from AC_duehring_screening.sweep_recool_temperature())."""
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(figsize=(8.5, 6.0))
@@ -691,11 +633,8 @@ def plot_feasibility_sweep(
     y_min = np.array([p.T11_min_C for p in ok_points])
     y_max = np.array([p.T11_max_C for p in ok_points])
 
-    ax.fill_between(
-        x, y_min, y_max, color="tab:orange", alpha=0.18,
-        label="feasibles T11-Fenster (Pinch-Modell, fixe dT_min)",
-    )
-    ax.plot(x, y_min, "o-", color="tab:orange", label="T11_min (minimale Generatoreintrittstemperatur)")
+    ax.fill_between(x, y_min, y_max, color="tab:orange", alpha=0.18, label="feasible window")
+    ax.plot(x, y_min, "o-", color="tab:orange", label="T11_min")
     ax.plot(x, y_max, "o--", color="tab:orange", linewidth=1.2, label="T11_max")
 
     fail_points = [p for p in points if not p.feasible]
@@ -703,28 +642,24 @@ def plot_feasibility_sweep(
         xf = np.array([p.T_reject_C for p in fail_points])
         ax.plot(
             xf, np.zeros_like(xf), "x", color="tab:red", markersize=8,
-            markeredgewidth=2, label="nicht lösbar",
+            markeredgewidth=2, label="infeasible",
         )
 
     if duehring_reference is not None:
-        xr = np.array([r.T_rueck_C for r in duehring_reference])
+        xr = np.array([r.T_recool_C for r in duehring_reference])
         yr = np.array([r.T_gen_min_C for r in duehring_reference])
         okr = np.array([r.feasible for r in duehring_reference])
-        ax.plot(
-            xr[okr], yr[okr], "--", color="0.4",
-            label="Dühring-Untergrenze (optimistisch)",
-        )
+        ax.plot(xr[okr], yr[okr], "--", color="0.4", label="Duehring bound (optimistic)")
 
-    ax.set_xlabel("Rückkühltemperatur T13 = T15 [°C]")
-    ax.set_ylabel("Generatoreintrittstemperatur T11 [°C]")
-    ax.set_title("AC Pinch-Feasibility-Sweep: minimale Generatoreintrittstemperatur vs. Rückkühltemperatur")
+    ax.set_xlabel("Reject-cooling temperature T13 = T15 [°C]")
+    ax.set_ylabel("Generator inlet temperature T11 [°C]")
     ax.grid(alpha=0.4)
     ax.legend(fontsize=8.5)
 
     fig.tight_layout()
     if save_path is not None:
         fig.savefig(save_path, dpi=150, bbox_inches="tight")
-        print(f"Plot gespeichert: {save_path}")
+        print(f"Plot saved: {save_path}")
     if show:
         plt.show()
 
@@ -734,18 +669,18 @@ def plot_feasibility_sweep(
 if __name__ == "__main__":
     config = FeasibilitySweepConfig()
 
-    # Alle physikalischen Annahmen (Pinch-Werte, Approach-Werte, T18_spec_C)
-    # stehen zentral in FeasibilitySweepConfig oben -- dort anpassen, nicht
-    # hier.
-    T_RUECK_RANGE_C = list(
-        np.arange(T_RUECK_START_C, T_RUECK_END_C - 0.5 * T_RUECK_STEP_C, -abs(T_RUECK_STEP_C))
-        if T_RUECK_END_C < T_RUECK_START_C else
-        np.arange(T_RUECK_START_C, T_RUECK_END_C + 0.5 * T_RUECK_STEP_C, abs(T_RUECK_STEP_C))
+    # All physical assumptions (pinch values, approach values, T18_spec_C)
+    # live centrally in FeasibilitySweepConfig above -- adjust them there,
+    # not here.
+    T_REJECT_RANGE_C = list(
+        np.arange(T_REJECT_START_C, T_REJECT_END_C - 0.5 * T_REJECT_STEP_C, -abs(T_REJECT_STEP_C))
+        if T_REJECT_END_C < T_REJECT_START_C else
+        np.arange(T_REJECT_START_C, T_REJECT_END_C + 0.5 * T_REJECT_STEP_C, abs(T_REJECT_STEP_C))
     )
 
-    print(f"Minimal nötige Generatoreintrittstemperatur T11 vs. Rückkühltemperatur")
-    print(f"(T18_spec_C = {config.T18_spec_C:.1f} °C konstant, feste Verdampferaustrittstemperatur)")
-    points = sweep_min_generator_temperature_homotopy(T_RUECK_RANGE_C, config)
+    print(f"Minimum required generator inlet temperature T11 vs. reject-cooling temperature")
+    print(f"(T18_spec_C = {config.T18_spec_C:.1f} °C constant, fixed evaporator outlet temperature)")
+    points = sweep_min_generator_temperature_homotopy(T_REJECT_RANGE_C, config)
     print_sweep_table(points)
 
     duehring_reference = None
@@ -758,21 +693,21 @@ if __name__ == "__main__":
             sweep_recool_temperature = None
     if sweep_recool_temperature is not None:
         duehring_reference = sweep_recool_temperature(
-            T_RUECK_RANGE_C, T_evap_target_C=config.T18_spec_C - config.dT_min_evap,
+            T_REJECT_RANGE_C, T_evap_target_C=config.T18_spec_C - config.dT_min_evap,
             dT_min_des=config.dT_min_des, dT_min_cond=config.dT_min_cond, dT_min_abs=config.dT_min_abs,
         )
 
     plot_feasibility_sweep(points, duehring_reference=duehring_reference)
 
-    # Zusatzauswertungen: nutzen die oben bereits berechneten `points` weiter
-    # (keine erneute Sweep-Berechnung). Lazy Import, damit die beiden
-    # Skripte selbst weiterhin eigenständig importierbar/ausführbar bleiben.
+    # Additional evaluations: reuse the `points` already computed above (no
+    # re-running the sweep). Lazy imports so the two scripts themselves stay
+    # independently importable/runnable.
     if ENABLE_DUEHRING_MULTI_PLOT:
         from Design_Point.Visualization_Scripts.AC_duehring_multi_process_plot import (
             select_and_plot_duehring,
         )
         select_and_plot_duehring(
-            points, every_nth=MULTI_PLOT_EVERY_NTH,
+            points, everys_nth=MULTI_PLOT_EVERY_NTH,
             save_path=f"Design_Point/Plots/{duehring_plot_name}.png",
         )
 

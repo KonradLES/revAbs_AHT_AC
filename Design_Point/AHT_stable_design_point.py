@@ -1,39 +1,39 @@
 """
-Findet für einen fest vorgegebenen Betriebspunkt (externe Temperaturen + Leistung)
-über eine Kontinuitaets-/Homotopie-Strategie:
+For a fixed operating point (external temperatures + duty), finds via a
+continuation/homotopy strategy:
 
-  (a) einen stabilen Startvektor x0 fuer die 8 primaeren Unbekannten, und
-  (b) den kleinsten simultan erreichbaren Satz an minimalen Pinch-Temperatur-
-      differenzen (dT_min) fuer die 5 Waermeuebertrager (SHEX, Desorber,
-      Kondensator, Verdampfer, Absorber),
+  (a) a stable initial guess x0 for the 7 primary unknowns, and
+  (b) the smallest simultaneously achievable set of minimum pinch
+      temperature differences (dT_min) for the 5 heat exchangers (SHEX,
+      desorber, condenser, evaporator, absorber),
 
-sodass Betriebspunkt + x0 + dT_min anschliessend als Startpunkt in den
-Bilevel-Optimierer uebergeben werden koennen.
+so that operating point + x0 + dT_min can then be passed as the starting
+point to the bilevel optimizer.
 
-Vorgehen (Homotopie):
-  - Start bei sehr lockeren (grossen) dT_min-Werten -> Gleichungssystem ist
-    "weich" und konvergiert praktisch unabhaengig vom Startvektor.
-  - Homotopie-Parameter t in [0, 1] interpoliert linear zwischen den
-    lockeren Startwerten (t=0) und den gewuenschten "Floor"-Zielwerten (t=1).
-  - t wird schrittweise erhoeht, jede konvergierte Loesung dient als Warmstart
-    (x0) fuer den naechsten, etwas schwierigeren Schritt.
-  - Schlaegt ein Schritt fehl, wird die Schrittweite halbiert (Bisektion).
-    Wird die Schrittweite zu klein, gilt der zuletzt konvergierte Punkt als
-    die (praktische) Pinch-Grenze fuer diesen Betriebspunkt.
+Approach (homotopy):
+  - Start at very loose (large) dT_min values -> the equation system is
+    "soft" and converges essentially regardless of the initial guess.
+  - Homotopy parameter t in [0, 1] linearly interpolates between the loose
+    starting values (t=0) and the desired "floor" target values (t=1).
+  - t is increased stepwise; each converged solution is used as a warm
+    start (x0) for the next, slightly harder step.
+  - If a step fails, the step size is halved (bisection). Once the step
+    size gets too small, the last converged point is taken as the
+    (practical) pinch limit for this operating point.
 
-Diese Version verwendet direkt die echten Schnittstellen aus AHT_Pinch_Point.py:
-  - initial_guess(inputs)       -> generische Startwert-Heuristik des Modells
-  - solve_aht(...) -> AHTResult mit .primary_variables (dict!), .solve_info
-    (success, final_point_evaluable, scaled_residual_norm) und .checks
-  - Ein Loesungspunkt gilt hier erst dann als "konvergiert", wenn ALLE der
-    folgenden Bedingungen erfuellt sind (rein scipy-success reicht nicht,
-    da trf auch an einem unphysikalischen/instabilen Punkt "erfolgreich"
-    terminieren kann, wenn die Soft-Residuen dort zufaellig klein sind):
-      1. solve_info.success            == True
-      2. solve_info.final_point_evaluable == True  (strenge Endauswertung ok)
-      3. solve_info.scaled_residual_norm <= RESIDUAL_TOL
-      4. alle result.checks-Werte      == True     (Konzentrationsreihenfolge,
-         Kristallisationssicherheit, Massenbilanzen etc.)
+This version uses the real interfaces from AHT_Pinch_Point.py directly:
+  - initial_guess(inputs)  -> the model's generic initial-guess heuristic
+  - solve_aht(...) -> AHTResult with .primary_variables (dict!), .solve_info
+    (success, final_point_evaluable, scaled_residual_norm), and .checks
+  - A solution point only counts as "converged" here once ALL of the
+    following hold (plain scipy success isn't enough, since trf can
+    terminate "successfully" at an unphysical/unstable point if the soft
+    residuals happen to be small there):
+      1. solve_info.success               == True
+      2. solve_info.final_point_evaluable == True  (strict final evaluation ok)
+      3. solve_info.scaled_residual_norm  <= RESIDUAL_TOL
+      4. all result.checks values         == True  (concentration ordering,
+         crystallization safety, mass balances, etc.)
 """
 
 from __future__ import annotations
@@ -55,14 +55,14 @@ from Models.AHT_Pinch_Point import (
     solve_aht,
 )
 
-# Schwelle fuer die skalierte Residuumsnorm, ab der ein Punkt als
-# "konvergiert" gilt (nicht nur "von scipy terminiert").
+# Threshold on the scaled residual norm above which a point counts as
+# "converged" (not just "terminated by scipy").
 RESIDUAL_TOL = 1.0e-6
 
 
 # ---------------------------------------------------------------------------
-# 1) Betriebspunkt festlegen (bleibt ueber den gesamten Lauf KONSTANT)
-#    -> hier deine externen Temperaturen und deine geforderte Leistung eintragen
+# 1) Fix the operating point (stays CONSTANT for the whole run)
+#    -> enter your external temperatures and required duty here
 # ---------------------------------------------------------------------------
 OPERATING_POINT = dict(
     T_11_C=75.0,
@@ -85,10 +85,10 @@ OPERATING_POINT = dict(
 )
 
 # ---------------------------------------------------------------------------
-# 2) Homotopie-Einstellungen fuer die Pinch-Temperaturdifferenzen
+# 2) Homotopy settings for the pinch temperature differences
 # ---------------------------------------------------------------------------
-# "Locker" = garantiert unproblematischer Startpunkt (nicht aendern, ausser
-# selbst das konvergiert bei dir nicht -> dann hier weiter erhoehen)
+# "Loose" = guaranteed unproblematic starting point (don't change unless
+# even this doesn't converge for you -> then raise it further)
 DT_MIN_LOOSE = dict(
     dT_min_shex=65.0,
     dT_min_des=65.0,
@@ -97,9 +97,9 @@ DT_MIN_LOOSE = dict(
     dT_min_abs=65.0,
 )
 
-# "Floor" = das, was du eigentlich erreichen willst (ruhig aggressiv/klein
-# waehlen - das Skript findet automatisch die reale Grenze, falls das nicht
-# vollstaendig erreichbar ist)
+# "Floor" = what you actually want to reach (feel free to pick this
+# aggressively small -- the script automatically finds the real limit if
+# it's not fully reachable)
 DT_MIN_FLOOR = dict(
     dT_min_shex=1.0,
     dT_min_des=1.0,
@@ -108,18 +108,18 @@ DT_MIN_FLOOR = dict(
     dT_min_abs=1.0,
 )
 
-T_STEP_INITIAL = 0.25       # initialer Homotopie-Schritt (Anteil von [0,1])
-T_STEP_MIN = 1e-3           # Abbruch, wenn Schrittweite kleiner wird
+T_STEP_INITIAL = 0.25       # initial homotopy step (fraction of [0,1])
+T_STEP_MIN = 1e-3           # abort once the step size drops below this
 MAX_ITERATIONS = 500
 
 
 # ---------------------------------------------------------------------------
-# Hilfsfunktionen
+# Helper functions
 # ---------------------------------------------------------------------------
 def _x0_from_result(result: AHTResult) -> np.ndarray:
-    """Extrahiert den Loesungsvektor aus einem AHTResult in der Reihenfolge
-    von PRIMARY_VARIABLE_NAMES, damit er direkt als x0 fuer den naechsten
-    solve_aht-Aufruf (Warmstart) verwendet werden kann.
+    """Extracts the solution vector from an AHTResult in PRIMARY_VARIABLE_NAMES
+    order, so it can be used directly as x0 (warm start) for the next
+    solve_aht call.
     """
     return np.array(
         [result.primary_variables[name] for name in PRIMARY_VARIABLE_NAMES],
@@ -128,7 +128,7 @@ def _x0_from_result(result: AHTResult) -> np.ndarray:
 
 
 def _is_valid_solution(result: AHTResult) -> bool:
-    """Strenge Konvergenzpruefung, siehe Modulbeschreibung oben."""
+    """Strict convergence check, see module docstring above."""
     info = result.solve_info
     if not info.success:
         return False
@@ -142,18 +142,18 @@ def _is_valid_solution(result: AHTResult) -> bool:
 
 
 def _with_dT_min(inputs: AHTInputs, dT_min: dict) -> AHTInputs:
-    """Erzeugt eine Kopie von `inputs` mit aktualisierten dT_min-Werten."""
+    """Returns a copy of `inputs` with updated dT_min values."""
     try:
         return dataclasses.replace(inputs, **dT_min)
     except TypeError:
-        # Fallback, falls AHTInputs kein dataclass ist
+        # Fallback in case AHTInputs is not a dataclass
         data = vars(inputs).copy()
         data.update(dT_min)
         return AHTInputs(**data)
 
 
 def _interp_dT_min(t: float) -> dict:
-    """Lineare Interpolation zwischen lockeren und Ziel-dT_min-Werten."""
+    """Linear interpolation between the loose and target dT_min values."""
     return {
         key: (1.0 - t) * DT_MIN_LOOSE[key] + t * DT_MIN_FLOOR[key]
         for key in DT_MIN_LOOSE
@@ -161,41 +161,41 @@ def _interp_dT_min(t: float) -> dict:
 
 
 def _try_solve(inputs: AHTInputs, x0: np.ndarray):
-    """Ruft solve_aht auf und prueft das Ergebnis streng (siehe _is_valid_solution).
-    solve_aht wirft bei Nichtkonvergenz KEINE Exception, sondern liefert ein
-    AHTResult mit entsprechend gesetzten solve_info-/checks-Feldern - deshalb
-    wird hier trotzdem defensiv try/except verwendet (z. B. falls AHTInputs
-    selbst schon bei der Konstruktion einen ValueError wirft).
+    """Calls solve_aht and strictly checks the result (see _is_valid_solution).
+    solve_aht does NOT raise on non-convergence; it returns an AHTResult with
+    solve_info/checks fields set accordingly -- the try/except here is
+    defensive nonetheless (e.g. in case AHTInputs itself raises a ValueError
+    at construction).
     """
     try:
         result = solve_aht(inputs, x0=x0)
     except Exception as exc:
-        print(f"    -> Exception bei solve_aht: {exc}")
+        print(f"    -> exception in solve_aht: {exc}")
         return False, None
 
     if not _is_valid_solution(result):
         info = result.solve_info
         print(
-            f"    -> nicht konvergiert (success={info.success}, "
+            f"    -> not converged (success={info.success}, "
             f"final_point_evaluable={info.final_point_evaluable}, "
             f"residual_norm={info.scaled_residual_norm:.3e})"
         )
         if result.checks and not all(result.checks.values()):
             failed = [k for k, v in result.checks.items() if not v]
-            print(f"       fehlgeschlagene Plausibilitaetschecks: {failed}")
+            print(f"       failed plausibility checks: {failed}")
         return False, None
 
     return True, result
 
 
 def find_stable_operating_point(base_inputs: AHTInputs):
-    """Homotopie-Lauf.
+    """Runs the homotopy.
 
     Returns:
-        best_inputs: AHTInputs mit den kleinsten erreichten dT_min
-        best_x0: zugehoeriger konvergierter Loesungsvektor (Warmstart-faehig)
-        best_dT: dict der erreichten dT_min-Werte
-        best_result: letztes erfolgreiches solve_aht-Ergebnis
+        best_inputs: AHTInputs with the smallest dT_min reached
+        best_x0: corresponding converged solution vector (warm-start ready)
+        best_dT: dict of the dT_min values reached
+        best_result: last successful solve_aht result
     """
     x0 = initial_guess(base_inputs)
 
@@ -206,9 +206,9 @@ def find_stable_operating_point(base_inputs: AHTInputs):
     ok, result = _try_solve(best_inputs, x0)
     if not ok:
         raise RuntimeError(
-            "Bereits die lockeren dT_min-Startwerte (DT_MIN_LOOSE) konvergieren "
-            "nicht. Bitte DT_MIN_LOOSE weiter erhoehen (z. B. auf 35-40 K) oder "
-            "den Betriebspunkt in OPERATING_POINT pruefen."
+            "Even the loose dT_min starting values (DT_MIN_LOOSE) don't converge. "
+            "Please raise DT_MIN_LOOSE further (e.g. to 35-40 K) or check the "
+            "operating point in OPERATING_POINT."
         )
     best_x0 = _x0_from_result(result)
     best_dT = _interp_dT_min(t)
@@ -223,7 +223,7 @@ def find_stable_operating_point(base_inputs: AHTInputs):
         dT_trial = _interp_dT_min(t_trial)
         trial_inputs = _with_dT_min(base_inputs, dT_trial)
 
-        print(f"[t={t_trial:.4f}] versuche dT_min={dT_trial}")
+        print(f"[t={t_trial:.4f}] trying dT_min={dT_trial}")
         ok, result = _try_solve(trial_inputs, best_x0)
 
         if ok:
@@ -232,27 +232,27 @@ def find_stable_operating_point(base_inputs: AHTInputs):
             best_x0 = _x0_from_result(result)
             best_dT = dT_trial
             best_result = result
-            # nach Erfolg Schrittweite wieder vorsichtig vergroessern
+            # after success, cautiously grow the step size again
             t_step = min(T_STEP_INITIAL, t_step * 1.5)
             print("    -> OK")
         else:
             t_step /= 2.0
             if t_step < T_STEP_MIN:
                 print(
-                    f"\nAbbruch: minimale Schrittweite unterschritten. "
-                    f"Letzter stabiler Punkt bei t={t:.4f}."
+                    f"\nAborting: step size fell below the minimum. "
+                    f"Last stable point at t={t:.4f}."
                 )
                 break
 
     if t < 1.0 - 1e-9:
         print(
-            "\nHINWEIS: Die gewuenschten Floor-Werte (DT_MIN_FLOOR) sind fuer "
-            "diesen Betriebspunkt NICHT vollstaendig erreichbar.\n"
-            "Die unten ausgegebenen dT_min sind die kleinsten simultan "
-            "erreichbaren Werte (praktische Pinch-Grenze dieses Betriebspunkts)."
+            "\nNOTE: the desired floor values (DT_MIN_FLOOR) are NOT fully "
+            "reachable for this operating point.\n"
+            "The dT_min printed below are the smallest simultaneously "
+            "reachable values (the practical pinch limit of this operating point)."
         )
     else:
-        print("\nZiel-dT_min (DT_MIN_FLOOR) vollstaendig erreicht.")
+        print("\nTarget dT_min (DT_MIN_FLOOR) fully reached.")
 
     return best_inputs, best_x0, best_dT, best_result
 
@@ -265,17 +265,17 @@ if __name__ == "__main__":
     )
 
     print("\n" + "=" * 70)
-    print("ERGEBNIS - stabiler Betriebspunkt gefunden")
+    print("RESULT - stable operating point found")
     print("=" * 70)
 
-    print("\nMinimale simultan erreichbare Pinch-Temperaturdifferenzen:")
+    print("\nMinimum simultaneously reachable pinch temperature differences:")
     for k, v in stable_dT_min.items():
         print(f"  {k:15s} = {v:.3f} K")
 
     stable_x0_C = primary_temperatures_K_to_C(stable_x0)
-    print("\nStabiler Startvektor x0:")
-    print(f"  intern (K bzw. -)      : {stable_x0}")
-    print(f"  lesbar (Grad C bzw. -) : {dict(zip(PRIMARY_VARIABLE_NAMES, stable_x0_C))}")
+    print("\nStable initial vector x0:")
+    print(f"  internal (K or -)   : {stable_x0}")
+    print(f"  readable (degC or -): {dict(zip(PRIMARY_VARIABLE_NAMES, stable_x0_C))}")
 
-    print("\nVollstaendige Ergebniszusammenfassung:")
+    print("\nFull result summary:")
     print_summary(result)

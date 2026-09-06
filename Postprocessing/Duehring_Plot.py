@@ -1,42 +1,42 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Erzeugt zwei Dühring-Diagramme für wässrige LiBr-Lösungen.
+"""Produces two Duehring diagrams for aqueous LiBr solutions.
 
-Varianten
+Variants
 ---------
-1. Isosteren mit konstantem LiBr-Molanteil
-2. Isosteren mit konstantem LiBr-Massenanteil
+1. Isosteres at constant LiBr mole fraction
+2. Isosteres at constant LiBr mass fraction
 
-Die Siedelinien werden aus der Dampfdruckkorrelation von Pátek und Klomfar
-(2006) analytisch in Dühring-Form ausgewertet. Die Kristallisationsgrenze wird
-mit dem Regressionspolynom von Albers (2019) auf Basis der Messdaten von
-Boryta (1970) berechnet. Isosteren werden an dieser Grenze abgeschnitten.
+The boiling lines are evaluated analytically in Duehring form from the
+vapor-pressure correlation of Patek and Klomfar (2006). The
+crystallization limit is computed with the regression polynomial of
+Albers (2019), based on the measurement data of Boryta (1970). Isosteres
+are cut off at this limit.
 
-Benötigte Pakete
+Required packages
 ----------------
 - numpy
 - matplotlib
 
-Aufruf
+Usage
 ------
     python duehring_diagramm.py
 
-Optionen, zum Beispiel:
+Options, for example:
     python duehring_diagramm.py --output-dir plots --formats png pdf svg --dpi 300
     python duehring_diagramm.py --variant mole --show
 
-Standardmäßig werden vier Dateien erzeugt:
-- duehring_diagramm_molanteil.png
-- duehring_diagramm_molanteil.pdf
-- duehring_diagramm_massenanteil.png
-- duehring_diagramm_massenanteil.pdf
+By default, four files are produced:
+- duehring_diagramm_mole_fraction.png
+- duehring_diagramm_mole_fraction.pdf
+- duehring_diagramm_mass_fraction.png
+- duehring_diagramm_mass_fraction.pdf
 
-Hinweis zur oberen Achse
+Note on the top axis
 ------------------------
-Die Konzentration ist keine globale Funktion der unteren Temperaturachse.
-Wie in üblichen Dühring-Darstellungen werden die Ticks der oberen Achse daher
-an den Schnittpunkten der jeweiligen Isosteren mit dem oberen Diagrammrand
-positioniert.
+Concentration is not a global function of the bottom temperature axis. As
+in typical Duehring representations, the top axis' ticks are therefore
+positioned at the intersections of each isostere with the top plot edge.
 """
 
 from __future__ import annotations
@@ -51,18 +51,18 @@ try:
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
     from matplotlib.ticker import MultipleLocator
-except ImportError as exc:  # pragma: no cover - nur bei fehlenden Paketen
+except ImportError as exc:  # pragma: no cover - only if packages are missing
     raise SystemExit(
-        "Fehlendes Python-Paket. Installiere die Abhängigkeiten mit:\n"
+        "Missing Python package. Install the dependencies with:\n"
         "    python -m pip install numpy matplotlib"
     ) from exc
 
 
 # =============================================================================
-# Konstanten und Diagrammkonfiguration
+# Constants and plot configuration
 # =============================================================================
 
-M_LIBR = 0.08685       # kg/mol, entsprechend der verwendeten Implementierung
+M_LIBR = 0.08685       # kg/mol, matching the implementation used here
 M_H2O = 0.018015268    # kg/mol
 T_CRIT_H2O = 647.096   # K
 P_CRIT_H2O = 22.064e6  # Pa
@@ -72,30 +72,30 @@ X_AXIS_MIN_C = 0.0
 X_AXIS_MAX_C = 160.0
 X_AXIS_MAJOR_C = 20.0
 
-# Der obere Rand der linken y-Achse wird aus p = 2000 mbar für reines Wasser
-# bestimmt. Dadurch stimmen linke Temperatur- und rechte Druckachse exakt überein.
+# The top edge of the left y-axis is derived from p = 2000 mbar for pure
+# water, so the left temperature axis and right pressure axis line up exactly.
 P_RIGHT_MAX_MBAR = 2000.0
 
-# Dichte der Isosterenschar. Alle 10 Prozentpunkte: schwarz; dazwischen grau.
+# Density of the isostere family. Every 10 percentage points: black; in between: gray.
 MAJOR_COMPOSITION_STEP_PERCENT = 10.0
 MINOR_COMPOSITION_STEP_PERCENT = 2.5
 
-# Albers/Boryta: gültiger Bereich des Polynoms T_cr(w)
+# Albers/Boryta: valid range of the T_cr(w) polynomial
 W_CRYST_MIN = 0.57
 W_CRYST_MAX = 0.70
 
-# Obergrenze der gezeichneten Konzentrationen. Sie entspricht zugleich dem
-# oberen Gültigkeitsende der verwendeten Kristallisationskorrelation.
+# Upper bound of the plotted concentrations. Also the upper validity limit
+# of the crystallization correlation used here.
 W_PLOT_MAX = W_CRYST_MAX
-X_PLOT_MAX = None  # wird nach Definition der Umrechnungsfunktion gesetzt
+X_PLOT_MAX = None  # set after the conversion function is defined
 
-# Rechter Druckmaßstab, orientiert an den beigefügten Referenzabbildungen.
+# Right pressure scale, matching the accompanying reference figures.
 PRESSURE_TICKS_MBAR = np.array(
     [7, 10, 20, 30, 50, 70, 100, 200, 300, 500, 700, 1000, 1500, 2000],
     dtype=float,
 )
 
-# Pátek/Klomfar, Gleichung (1), Tabelle 4: Druckkorrelation
+# Patek/Klomfar, Eq. (1), Table 4: pressure correlation
 PAT_A = np.array(
     [-2.41303e2, 1.91750e7, -1.75521e8, 3.25430e7,
       3.92571e2, -2.12626e3, 1.85127e8, 1.91216e3],
@@ -105,7 +105,7 @@ PAT_M = np.array([3, 4, 4, 8, 1, 1, 4, 6], dtype=float)
 PAT_N = np.array([0, 5, 6, 3, 0, 2, 6, 0], dtype=float)
 PAT_T = np.array([0, 0, 0, 0, 1, 1, 1, 1], dtype=float)
 
-# Pátek/Klomfar, Gleichung (28), Tabelle 11: Dampfdruck von reinem Wasser
+# Patek/Klomfar, Eq. (28), Table 11: vapor pressure of pure water
 WATER_ALPHA = np.array(
     [-7.85951783, 1.84408259, -11.7866497,
       22.6807411, -15.9618719, 1.80122502],
@@ -113,7 +113,7 @@ WATER_ALPHA = np.array(
 )
 WATER_BETA = np.array([1.0, 1.5, 3.0, 3.5, 4.0, 7.5], dtype=float)
 
-# Albers (2019), Gleichung (2.52), Tabelle 2.8: T_cr als Funktion von w
+# Albers (2019), Eq. (2.52), Table 2.8: T_cr as a function of w
 ALBERS_T_COEFF = np.array(
     [
         42.90198341384762,
@@ -130,11 +130,11 @@ ALBERS_T_COEFF = np.array(
 
 
 # =============================================================================
-# Konzentrationsumrechnung
+# Concentration conversion
 # =============================================================================
 
 def mass_fraction_from_mole_fraction(x_libr: float | np.ndarray) -> float | np.ndarray:
-    """LiBr-Massenanteil w aus LiBr-Molanteil x."""
+    """LiBr mass fraction w from LiBr mole fraction x."""
     x = np.asarray(x_libr, dtype=float)
     denominator = x * M_LIBR + (1.0 - x) * M_H2O
     w = x * M_LIBR / denominator
@@ -142,7 +142,7 @@ def mass_fraction_from_mole_fraction(x_libr: float | np.ndarray) -> float | np.n
 
 
 def mole_fraction_from_mass_fraction(w_libr: float | np.ndarray) -> float | np.ndarray:
-    """LiBr-Molanteil x aus LiBr-Massenanteil w."""
+    """LiBr mole fraction x from LiBr mass fraction w."""
     w = np.asarray(w_libr, dtype=float)
     denominator = M_LIBR - w * (M_LIBR - M_H2O)
     x = w * M_H2O / denominator
@@ -153,20 +153,20 @@ X_PLOT_MAX = float(mole_fraction_from_mass_fraction(W_PLOT_MAX))
 
 
 # =============================================================================
-# Pátek-/Klomfar-Korrelation und Dühring-Transformation
+# Patek/Klomfar correlation and Duehring transformation
 # =============================================================================
 
 def _patek_duehring_coefficients(x_libr_mol: float) -> tuple[float, float]:
-    """Gibt A(x) [K] und B(x) [K] aus Albers Gl. (2.40) zurück.
+    """Returns A(x) [K] and B(x) [K] from Albers Eq. (2.40).
 
-    Mit theta = T_H2O bei gleichem Druck gilt:
-        theta = T_Lsg - A - B * T_Lsg / T_crit
-    und damit die analytische Dühring-Gerade:
-        T_Lsg = T_crit/(T_crit-B) * theta + T_crit*A/(T_crit-B)
+    With theta = T_H2O at the same pressure:
+        theta = T_sol - A - B * T_sol / T_crit
+    which gives the analytical Duehring line:
+        T_sol = T_crit/(T_crit-B) * theta + T_crit*A/(T_crit-B)
     """
     x = float(x_libr_mol)
     if not (0.0 <= x < 0.4):
-        raise ValueError(f"LiBr-Molanteil x={x:.8f} liegt außerhalb 0 <= x < 0.4.")
+        raise ValueError(f"LiBr mole fraction x={x:.8f} is outside 0 <= x < 0.4.")
 
     terms = PAT_A * x**PAT_M * (0.4 - x) ** PAT_N
     a_term = float(np.sum(terms[PAT_T == 0.0]))
@@ -178,7 +178,8 @@ def solution_boiling_temperature_c(
     water_dew_temperature_c: float | np.ndarray,
     x_libr_mol: float,
 ) -> float | np.ndarray:
-    """Lösungssiedetemperatur [°C] für Tautemperatur von reinem Wasser [°C]."""
+    """Solution boiling temperature [°C] for a given pure-water dew
+    temperature [°C]."""
     theta_k = np.asarray(water_dew_temperature_c, dtype=float) + T0_C
     a_term, b_term = _patek_duehring_coefficients(x_libr_mol)
     denominator = T_CRIT_H2O - b_term
@@ -193,7 +194,7 @@ def water_dew_temperature_c_from_solution(
     solution_temperature_c: float | np.ndarray,
     x_libr_mol: float,
 ) -> float | np.ndarray:
-    """Inverse Dühring-Beziehung: T_H2O [°C] aus T_Lsg [°C] und x."""
+    """Inverse Duehring relation: T_H2O [°C] from T_sol [°C] and x."""
     t_solution_k = np.asarray(solution_temperature_c, dtype=float) + T0_C
     a_term, b_term = _patek_duehring_coefficients(x_libr_mol)
     theta_k = t_solution_k * (1.0 - b_term / T_CRIT_H2O) - a_term
@@ -202,10 +203,10 @@ def water_dew_temperature_c_from_solution(
 
 
 def water_saturation_pressure_pa(temperature_k: float | np.ndarray) -> float | np.ndarray:
-    """Sättigungsdruck von reinem Wasser nach Pátek/Klomfar Gl. (28) [Pa]."""
+    """Saturation pressure of pure water per Patek/Klomfar Eq. (28) [Pa]."""
     t = np.asarray(temperature_k, dtype=float)
     if np.any((t <= 0.0) | (t >= T_CRIT_H2O)):
-        raise ValueError("Wassertemperatur muss zwischen 0 K und T_crit liegen.")
+        raise ValueError("Water temperature must lie between 0 K and T_crit.")
 
     tau = 1.0 - t / T_CRIT_H2O
     exponent = np.zeros_like(t, dtype=float)
@@ -216,17 +217,17 @@ def water_saturation_pressure_pa(temperature_k: float | np.ndarray) -> float | n
 
 
 def water_saturation_temperature_c_from_pressure_mbar(p_mbar: float) -> float:
-    """Inverse der Wasser-Dampfdruckgleichung per robuster Bisektion [°C]."""
+    """Inverse of the water vapor-pressure equation via robust bisection [°C]."""
     target_pa = float(p_mbar) * 100.0
     if target_pa <= 0.0:
-        raise ValueError("Der Druck muss positiv sein.")
+        raise ValueError("The pressure must be positive.")
 
     lo_k = 250.0
     hi_k = T_CRIT_H2O - 1.0e-8
     p_lo = float(water_saturation_pressure_pa(lo_k))
     p_hi = float(water_saturation_pressure_pa(hi_k))
     if not (p_lo <= target_pa <= p_hi):
-        raise ValueError(f"p={p_mbar:g} mbar liegt außerhalb des invertierbaren Bereichs.")
+        raise ValueError(f"p={p_mbar:g} mbar is outside the invertible range.")
 
     for _ in range(120):
         mid_k = 0.5 * (lo_k + hi_k)
@@ -239,20 +240,20 @@ def water_saturation_temperature_c_from_pressure_mbar(p_mbar: float) -> float:
 
 
 # =============================================================================
-# Kristallisationsgrenze nach Albers/Boryta
+# Crystallization limit per Albers/Boryta
 # =============================================================================
 
 def crystallization_temperature_c_from_mass_fraction(
     w_libr: float | np.ndarray,
 ) -> float | np.ndarray:
-    """Kristallisationstemperatur T_cr(w) [°C], Albers Gl. (2.52).
+    """Crystallization temperature T_cr(w) [°C], Albers Eq. (2.52).
 
-    Gültigkeitsbereich: 0.57 < w < 0.70 kg/kg.
+    Valid range: 0.57 < w < 0.70 kg/kg.
     """
     w = np.asarray(w_libr, dtype=float)
     if np.any((w < W_CRYST_MIN) | (w > W_CRYST_MAX)):
         raise ValueError(
-            f"T_cr(w) ist hier nur für {W_CRYST_MIN:.2f} <= w <= {W_CRYST_MAX:.2f} gültig."
+            f"T_cr(w) is only valid here for {W_CRYST_MIN:.2f} <= w <= {W_CRYST_MAX:.2f}."
         )
     w_b = (w - 0.64794) / 0.044858
     t_cr = np.zeros_like(w_b, dtype=float)
@@ -262,7 +263,7 @@ def crystallization_temperature_c_from_mass_fraction(
 
 
 def crystallization_water_dew_temperature_c(w_libr: float | np.ndarray) -> float | np.ndarray:
-    """y-Koordinate der Kristallisationsgrenze im Dühring-Diagramm [°C]."""
+    """y-coordinate of the crystallization limit in the Duehring diagram [°C]."""
     w = np.asarray(w_libr, dtype=float)
     t_solution_cr = crystallization_temperature_c_from_mass_fraction(w)
     x_mol = mole_fraction_from_mass_fraction(w)
@@ -276,11 +277,11 @@ def crystallization_water_dew_temperature_c(w_libr: float | np.ndarray) -> float
 
 
 # =============================================================================
-# Plausibilitätsprüfungen
+# Plausibility checks
 # =============================================================================
 
 def run_self_checks() -> None:
-    """Prüft die Implementierung gegen Referenzwerte aus Pátek/Klomfar Tabelle 9."""
+    """Checks the implementation against reference values from Patek/Klomfar Table 9."""
     reference_points = [
         # (x_LiBr mol/mol, T/K, p/Pa)
         (0.05, 300.0, 3025.1805),
@@ -297,24 +298,24 @@ def run_self_checks() -> None:
         relative_error = abs(p_calculated / p_reference - 1.0)
         if relative_error > 3.0e-5:
             raise RuntimeError(
-                "Pátek-Selbstprüfung fehlgeschlagen: "
+                "Patek self-check failed: "
                 f"x={x_mol:.8f}, T={t_k:.3f} K, "
                 f"p_calc={p_calculated:.6f} Pa, p_ref={p_reference:.6f} Pa, "
-                f"rel. Fehler={relative_error:.3e}."
+                f"rel. error={relative_error:.3e}."
             )
 
-    # Der obere Albers-Gültigkeitsrand liegt gemäß Bericht ungefähr bei 101 °C.
+    # The upper Albers validity edge is, per the report, roughly at 101 °C.
     if not math.isclose(
         float(crystallization_temperature_c_from_mass_fraction(0.70)),
         100.9689444,
         rel_tol=0.0,
         abs_tol=2.0e-6,
     ):
-        raise RuntimeError("Albers-Kristallisationskorrelation liefert unerwartete Werte.")
+        raise RuntimeError("Albers crystallization correlation returns unexpected values.")
 
 
 # =============================================================================
-# Plot-Hilfsfunktionen
+# Plot helper functions
 # =============================================================================
 
 def _is_major_percent(value_percent: float) -> bool:
@@ -333,8 +334,8 @@ def _composition_grid(variant: Literal["mole", "mass"]) -> np.ndarray:
 
 
 def _top_axis_compositions(variant: Literal["mole", "mass"]) -> np.ndarray:
-    # Bei der Molanteil-Variante sind 5-Prozent-Ticks zweckmäßig, da bei der
-    # vorgegebenen x-Achse nur die Schnittpunkte bis etwa 15 mol-% sichtbar sind.
+    # For the mole-fraction variant, 5-percent ticks are appropriate, since
+    # with the given x-axis only the intersections up to about 15 mol-% are visible.
     step_percent = 5.0 if variant == "mole" else 10.0
     maximum = X_PLOT_MAX if variant == "mole" else W_PLOT_MAX
     start = 0.0 if variant == "mole" else 0.20
@@ -342,7 +343,7 @@ def _top_axis_compositions(variant: Literal["mole", "mass"]) -> np.ndarray:
 
 
 def _line_rotation_degrees(ax: plt.Axes, x_data: np.ndarray, y_data: np.ndarray) -> float:
-    """Berechnet die visuelle Rotation einer Linie in Bildschirmkoordinaten."""
+    """Computes the visual rotation of a line in screen coordinates."""
     if len(x_data) < 2:
         return 0.0
     p0 = ax.transData.transform((x_data[0], y_data[0]))
@@ -350,10 +351,10 @@ def _line_rotation_degrees(ax: plt.Axes, x_data: np.ndarray, y_data: np.ndarray)
     return math.degrees(math.atan2(p1[1] - p0[1], p1[0] - p0[0]))
 
 
-def create_duehring_figure(variant: Literal["mole", "mass"]) -> plt.Figure:
-    """Erzeugt eine Diagrammvariante und gibt die Matplotlib-Figure zurück."""
+def create_duehring_figure(variant: Literal["mole", "mass"]) -> tuple[plt.Figure, plt.Axes]:
+    """Produces one plot variant and returns (Figure, primary axis)."""
     if variant not in {"mole", "mass"}:
-        raise ValueError("variant muss 'mole' oder 'mass' sein.")
+        raise ValueError("variant must be 'mole' or 'mass'.")
 
     y_axis_max_c = water_saturation_temperature_c_from_pressure_mbar(P_RIGHT_MAX_MBAR)
     y_values_full = np.linspace(0.0, y_axis_max_c, 900)
@@ -364,11 +365,11 @@ def create_duehring_figure(variant: Literal["mole", "mass"]) -> plt.Figure:
     ax.set_xlim(X_AXIS_MIN_C, X_AXIS_MAX_C)
     ax.set_ylim(0.0, y_axis_max_c)
     ax.set_xlabel(
-        r"Siedetemperatur $T_{\mathrm{H_2O/LiBr}}^{\mathrm{LV}}$ [°C]",
+        r"Boiling temperature $T_{\mathrm{H_2O/LiBr}}^{\mathrm{LV}}$ [°C]",
         fontsize=12,
     )
     ax.set_ylabel(
-        r"Tautemperatur $T_{\mathrm{H_2O}}^{\mathrm{LV}}$ [°C]",
+        r"Dew temperature $T_{\mathrm{H_2O}}^{\mathrm{LV}}$ [°C]",
         fontsize=12,
     )
 
@@ -381,7 +382,7 @@ def create_duehring_figure(variant: Literal["mole", "mass"]) -> plt.Figure:
     ax.tick_params(direction="in", which="both", top=False, right=False, labelsize=10)
 
     # -------------------------------------------------------------------------
-    # Isosteren
+    # Isosteres
     # -------------------------------------------------------------------------
     for composition in _composition_grid(variant):
         if variant == "mole":
@@ -393,8 +394,8 @@ def create_duehring_figure(variant: Literal["mole", "mass"]) -> plt.Figure:
             x_mol = float(mole_fraction_from_mass_fraction(w_mass))
             composition_percent = 100.0 * w_mass
 
-        # Oberhalb des Albers/Boryta-Bereichs werden keine Isosteren gezeichnet,
-        # damit die Kristallisationsgrenze nicht unzulässig extrapoliert wird.
+        # No isosteres are drawn above the Albers/Boryta range, so the
+        # crystallization limit is never extrapolated beyond its validity.
         if w_mass > W_CRYST_MAX + 1.0e-12:
             continue
 
@@ -431,7 +432,7 @@ def create_duehring_figure(variant: Literal["mole", "mass"]) -> plt.Figure:
         )
 
     # -------------------------------------------------------------------------
-    # Kristallisationsgrenze
+    # Crystallization limit
     # -------------------------------------------------------------------------
     w_crystal = np.linspace(W_CRYST_MIN, W_CRYST_MAX, 500)
     t_solution_crystal = np.asarray(crystallization_temperature_c_from_mass_fraction(w_crystal))
@@ -461,7 +462,7 @@ def create_duehring_figure(variant: Literal["mole", "mass"]) -> plt.Figure:
         zorder=7,
     )
 
-    # Beschriftung der Wasserlinie
+    # Water-line label
     x_text = 101.0
     y_text = 101.0
     rotation_water = _line_rotation_degrees(
@@ -472,7 +473,7 @@ def create_duehring_figure(variant: Literal["mole", "mass"]) -> plt.Figure:
     ax.text(
         x_text,
         y_text,
-        "Wasser",
+        "Water",
         rotation=rotation_water,
         rotation_mode="anchor",
         ha="center",
@@ -491,7 +492,7 @@ def create_duehring_figure(variant: Literal["mole", "mass"]) -> plt.Figure:
             np.array([crystal_y[i0], crystal_y[i1]]),
         )
         ax.annotate(
-            "Kristallisationsgrenze",
+            "Crystallization limit",
             xy=(crystal_x[idx], crystal_y[idx]),
             xytext=(0.0, -8.0),
             textcoords="offset points",
@@ -505,15 +506,15 @@ def create_duehring_figure(variant: Literal["mole", "mass"]) -> plt.Figure:
         )
 
     # -------------------------------------------------------------------------
-    # Rechte Druckachse
+    # Right pressure axis
     # -------------------------------------------------------------------------
     pressure_positions = np.array(
         [water_saturation_temperature_c_from_pressure_mbar(p) for p in PRESSURE_TICKS_MBAR]
     )
     pressure_mask = (pressure_positions >= 0.0) & (pressure_positions <= y_axis_max_c + 1.0e-8)
 
-    # Zusätzliche horizontale Hilfslinien für die diskreten Druckniveaus.
-    # Sie ergänzen das reguläre Temperaturgitter, ohne die Isosteren zu überdecken.
+    # Additional horizontal guide lines for the discrete pressure levels.
+    # These complement the regular temperature grid without obscuring the isosteres.
     for y_pressure in pressure_positions[pressure_mask]:
         ax.axhline(
             y=y_pressure,
@@ -527,11 +528,11 @@ def create_duehring_figure(variant: Literal["mole", "mass"]) -> plt.Figure:
     ax_right.set_ylim(ax.get_ylim())
     ax_right.set_yticks(pressure_positions[pressure_mask])
     ax_right.set_yticklabels([f"{p:g}" for p in PRESSURE_TICKS_MBAR[pressure_mask]])
-    ax_right.set_ylabel(r"Gleichgewichtsdruck $p^{\mathrm{LV}}$ [mbar]", fontsize=12)
+    ax_right.set_ylabel(r"Equilibrium pressure $p^{\mathrm{LV}}$ [mbar]", fontsize=12)
     ax_right.tick_params(direction="in", which="major", labelsize=10)
 
     # -------------------------------------------------------------------------
-    # Obere Konzentrationsachse: Schnittpunkte mit dem oberen Diagrammrand
+    # Top concentration axis: intersections with the top plot edge
     # -------------------------------------------------------------------------
     top_compositions = _top_axis_compositions(variant)
     top_positions: list[float] = []
@@ -549,40 +550,32 @@ def create_duehring_figure(variant: Literal["mole", "mass"]) -> plt.Figure:
     ax_top.set_xlim(ax.get_xlim())
     ax_top.set_xticks(top_positions)
     ax_top.set_xticklabels(top_labels, rotation=28, ha="left", rotation_mode="anchor")
-    composition_name = r"Molanteil $x^{\mathrm{LiBr}}$" if variant == "mole" else r"Massenanteil $w^{\mathrm{LiBr}}$"
-    ax_top.set_xlabel(f"LiBr-{composition_name} der Isosteren [%]", labelpad=0, fontsize=10.5) #ax_top.set_xlabel(f"LiBr-{composition_name} der Isosteren [%]", labelpad=0, fontsize=10.5)
-    # Die Achsenbezeichnung wird bewusst nahe an der oberen Achse und links von
-    # den Konzentrationsticks positioniert, damit sie nicht wie ein Diagrammtitel wirkt.
+    composition_name = r"mole fraction $x^{\mathrm{LiBr}}$" if variant == "mole" else r"mass fraction $w^{\mathrm{LiBr}}$"
+    ax_top.set_xlabel(f"LiBr {composition_name} of the isosteres [%]", labelpad=0, fontsize=10.5)
+    # The axis label is deliberately positioned close to the top axis and
+    # left of the concentration ticks, so it doesn't read like a plot title.
     ax_top.xaxis.set_label_coords(0.5, 1.025)
     ax_top.tick_params(direction="in", which="major", pad=1, labelsize=9)
 
-    # Vollständige gemeinsame Legende: Quellen-/Varianteninformation und
-    # Erklärung aller verwendeten Linienarten in einem einzigen Feld.
-    variant_text = (
-        "konstanter LiBr-Molanteil"
-        if variant == "mole"
-        else "konstanter LiBr-Massenanteil"
-    )
-    
-    # Vereinfachte Legende
+    # Single combined legend explaining all line styles used.
     legend_handles = [
         Line2D(
             [0], [0],
             color="black",
             linewidth=1.65,
-            label="Isosteren in 10%-Schritten (Pátek & Klomfar)",
+            label="Isosteres in 10% steps (Patek & Klomfar)",
         ),
         Line2D(
             [0], [0],
             color="0.38",
             linewidth=0.65,
-            label="Isosteren in 2.5%-Schritten (Pátek & Klomfar)",
+            label="Isosteres in 2.5% steps (Patek & Klomfar)",
         ),
         Line2D(
             [0], [0],
             color="darkred",
             linewidth=2.2,
-            label="Kristallisationsgrenze (Albers/Boryta)",
+            label="Crystallization limit (Albers/Boryta)",
         ),
     ]
 
@@ -594,7 +587,7 @@ def create_duehring_figure(variant: Literal["mole", "mass"]) -> plt.Figure:
         fontsize=8.5,
     )
 
-    return fig
+    return fig, ax
 
 
 def save_figure(
@@ -603,12 +596,12 @@ def save_figure(
     formats: Iterable[str],
     dpi: int,
 ) -> list[Path]:
-    """Speichert eine Figure in allen gewünschten Formaten."""
+    """Saves a figure in all requested formats."""
     written: list[Path] = []
     for extension in formats:
         ext = extension.lower().lstrip(".")
         if ext not in {"png", "pdf", "svg"}:
-            raise ValueError(f"Nicht unterstütztes Ausgabeformat: {extension}")
+            raise ValueError(f"Unsupported output format: {extension}")
         output_path = output_base.with_suffix(f".{ext}")
         save_kwargs = {"bbox_inches": "tight"}
         if ext == "png":
@@ -619,46 +612,46 @@ def save_figure(
 
 
 # =============================================================================
-# Kommandozeile
+# Command line
 # =============================================================================
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Erzeugt Dühring-Diagramme für H2O/LiBr nach Pátek/Klomfar und Albers/Boryta."
+        description="Produces Duehring diagrams for H2O/LiBr per Patek/Klomfar and Albers/Boryta."
     )
     parser.add_argument(
         "--variant",
         choices=("both", "mole", "mass"),
         default="both",
-        help="Zu erzeugende Variante (Standard: both).",
+        help="Variant to produce (default: both).",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
         default=Path.cwd(),
-        help="Ausgabeverzeichnis (Standard: aktuelles Verzeichnis).",
+        help="Output directory (default: current directory).",
     )
     parser.add_argument(
         "--formats",
         nargs="+",
         default=("png", "pdf"),
-        help="Ausgabeformate aus png, pdf, svg (Standard: png pdf).",
+        help="Output formats from png, pdf, svg (default: png pdf).",
     )
     parser.add_argument(
         "--dpi",
         type=int,
         default=300,
-        help="Auflösung der PNG-Dateien (Standard: 300 dpi).",
+        help="Resolution of the PNG files (default: 300 dpi).",
     )
     parser.add_argument(
         "--show",
         action="store_true",
-        help="Diagramme zusätzlich interaktiv anzeigen.",
+        help="Also display the diagrams interactively.",
     )
     parser.add_argument(
         "--skip-checks",
         action="store_true",
-        help="Interne Referenzwertprüfungen überspringen.",
+        help="Skip internal reference-value checks.",
     )
     return parser.parse_args()
 
@@ -681,9 +674,9 @@ def main() -> None:
     all_written: list[Path] = []
     figures: list[plt.Figure] = []
     for variant in variants:
-        fig = create_duehring_figure(variant)
+        fig, _ax = create_duehring_figure(variant)
         figures.append(fig)
-        suffix = "molanteil" if variant == "mole" else "massenanteil"
+        suffix = "mole_fraction" if variant == "mole" else "mass_fraction"
         output_base = args.output_dir / f"duehring_diagramm_{suffix}"
         all_written.extend(save_figure(fig, output_base, args.formats, args.dpi))
 

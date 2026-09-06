@@ -1,27 +1,24 @@
-"""Mehrere AHT-Betriebspunkte (je Abwärmetemperatur) in einem Dühring-Diagramm.
+"""Several AHT operating points (one per waste-heat temperature) in one Duehring diagram.
 
-Nutzt denselben Sweep wie AHT_feasibility_sweep.py (Warmstart-verkettete
-Homotopie über T_waste, siehe dort für die vollständige Erklärung), zeichnet
-aber statt einer Tabelle/eines GTL-Fenster-Plots für eine Auswahl der
-untersuchten Abwärmetemperaturen den zugehörigen AHT-Kreisprozess -- jeweils
-am oberen Fensterrand (T12_max, siehe Modul-Docstring von
-AHT_feasibility_sweep.py: "welche Nutztemperatur ist bei dieser
-Abwärmetemperatur maximal erreichbar") -- als eigenes Sechseck in einer
-eigenen Farbe in DASSELBE Dühring-Diagramm (Basisdarstellung wie in
-Postprocessing/AHT_Duehring_Plot.py, dort auch für einen EINZELNEN
-Betriebspunkt genutzt).
+Reuses the same sweep as AHT_feasibility_sweep.py (warm-started homotopy over
+T_waste; see that module for the full explanation), but instead of a
+table/GTL-window plot, draws the AHT cycle for a selection of the examined
+waste-heat temperatures -- each at the upper window edge (T12_max: the
+maximum useful temperature reachable at that waste-heat temperature, see
+AHT_feasibility_sweep.py) -- as its own colored hexagon in the SAME Duehring
+diagram (base layout as in Postprocessing/AHT_Duehring_Plot.py, also used
+there for a SINGLE operating point).
 
-Farbverlauf: kalt (blau) = niedrige Abwärmetemperatur, warm (rot) = hohe
-Abwärmetemperatur (Colormap "coolwarm").
+Color gradient: cold (blue) = low waste-heat temperature, warm (red) = high
+waste-heat temperature (colormap "coolwarm").
 
-select_and_plot_duehring() ist die wiederverwendbare Kernfunktion -- sie
-nimmt eine bereits berechnete Punkteliste entgegen (z.B. direkt aus
-AHT_feasibility_sweep.py, ohne den Sweep ein zweites Mal zu rechnen). Das
-eigene __main__ hier führt den Sweep nur für den eigenständigen Aufruf
-dieses Skripts aus.
+select_and_plot_duehring() is the reusable core: it takes an already computed
+list of points (e.g. straight from AHT_feasibility_sweep.py, without
+re-running the sweep). The __main__ block below only runs the sweep when
+this script is invoked standalone.
 
-Aufruf als eigenständiges Skript
---------------------------------
+Standalone usage
+-----------------
     python Design_Point/Visualization_Scripts/AHT_duehring_multi_process_plot.py
 """
 
@@ -31,8 +28,8 @@ from pathlib import Path
 import sys
 from typing import TYPE_CHECKING, Optional, Sequence
 
-# Liegt in Design_Point/Visualization_Scripts/ -- drei Ebenen bis zum Repo-Root
-# (Design_Point/Visualization_Scripts -> Design_Point -> Repo-Root).
+# Lives in Design_Point/Visualization_Scripts/ -- three levels up to the repo root
+# (Design_Point/Visualization_Scripts -> Design_Point -> repo root).
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
 import numpy as np
@@ -43,23 +40,23 @@ if TYPE_CHECKING:
     from Design_Point.AHT_feasibility_sweep import FeasibilityPoint
 
 # ---------------------------------------------------------------------------
-# Konfiguration -- HIER ANPASSEN
+# Configuration -- ADJUST HERE
 # ---------------------------------------------------------------------------
-# Dieselbe Bedeutung wie in AHT_feasibility_sweep.py: die Homotopie startet
-# beim höchsten Wert (T_WASTE_START_C) kalt und wandert von dort abwärts.
-# Nur für den EIGENSTÄNDIGEN Aufruf dieses Skripts relevant (siehe __main__).
+# Same meaning as in AHT_feasibility_sweep.py: the homotopy starts cold at
+# the highest value (T_WASTE_START_C) and moves downward from there. Only
+# relevant for the STANDALONE invocation of this script (see __main__).
 T_WASTE_START_C = 85.0
 T_WASTE_END_C = 40.0
 T_WASTE_STEP_C = 5.0
 
-# Nicht jede untersuchte Abwärmetemperatur wird eingezeichnet, sonst wird das
-# Diagramm mit zu vielen überlagerten Sechsecken unleserlich. every_nth=2
-# entspricht "jede zweite" (z.B. bei 5K-Rasterschritten -> 10K-Abstand im
-# Diagramm: 85, 75, 65, ...).
+# Not every examined waste-heat temperature is drawn, otherwise the diagram
+# gets cluttered with too many overlapping hexagons. every_nth=2 means
+# "every second" (e.g. with a 5 K grid step -> 10 K spacing in the diagram:
+# 85, 75, 65, ...).
 PLOT_EVERY_NTH = 2
 
 PLOT_SAVE_PATH = "Design_Point/Plots/duehring_multi_process.png"
-DUEHRING_VARIANT = "mass"  # "mass" oder "mole"
+DUEHRING_VARIANT = "mass"  # "mass" or "mole"
 
 
 def select_and_plot_duehring(
@@ -69,30 +66,30 @@ def select_and_plot_duehring(
     variant: str = DUEHRING_VARIANT,
     save_path: Optional[str] = PLOT_SAVE_PATH,
     show: bool = False,
-    title: str = "AHT – Dühring-Diagramm: Betriebspunkte bei T12_max je Abwärmetemperatur",
+    title: str = "AHT - Duehring diagram: operating points at T12_max per waste-heat temperature",
 ):
-    """Wählt aus einer bereits berechneten Sweep-Punkteliste (siehe
-    AHT_feasibility_sweep.sweep_relative_lift_window_homotopy()) jeden
-    `every_nth`-ten feasiblen Punkt aus und zeichnet dessen Betriebspunkt bei
-    T12_max als eigenes Sechseck in ein gemeinsames Dühring-Diagramm.
+    """Picks every `every_nth`-th feasible point from an already computed sweep
+    (see AHT_feasibility_sweep.sweep_relative_lift_window_homotopy()) and
+    draws its operating point at T12_max as its own hexagon in a shared
+    Duehring diagram.
 
-    Rechnet NICHTS neu -- nutzt die in `points[i].result` bereits enthaltenen
-    (streng nachgerechneten) AHTResult-Objekte. Gibt None zurück (und
-    überspringt mit Hinweis), wenn kein feasibler Punkt vorhanden ist.
+    Computes NOTHING new -- reuses the AHTResult objects already stored in
+    `points[i].result` (strictly re-evaluated). Returns None (and skips with
+    a message) if no feasible point is available.
     """
     feasible_points = [p for p in points if p.feasible and p.result is not None]
     selected = feasible_points[::every_nth]
 
     if not selected:
         print(
-            "select_and_plot_duehring: kein feasibler Betriebspunkt vorhanden -- "
-            "Dühring-Mehrfach-Plot wird übersprungen."
+            "select_and_plot_duehring: no feasible operating point available -- "
+            "skipping Duehring multi-process plot."
         )
         return None
 
     print(
-        f"\n{len(selected)} von {len(feasible_points)} feasiblen Punkten werden "
-        f"im Dühring-Diagramm eingezeichnet (jeder {every_nth}. Punkt):"
+        f"\nDrawing {len(selected)} of {len(feasible_points)} feasible points "
+        f"in the Duehring diagram (every {every_nth}. point):"
     )
     for p in selected:
         print(f"  T_waste={p.T_waste_C:6.2f} °C -> T12_max={p.T12_max_C:6.2f} °C (GTL_max={p.GTL_max_K:.2f} K)")
@@ -103,7 +100,7 @@ def select_and_plot_duehring(
         entries, variant=variant, save_path=save_path, show=show, title=title,
     )
     if save_path is not None:
-        print(f"Dühring-Mehrfach-Plot gespeichert: {save_path}")
+        print(f"Duehring multi-process plot saved: {save_path}")
     return fig
 
 
@@ -119,7 +116,7 @@ if __name__ == "__main__":
         np.arange(T_WASTE_START_C, T_WASTE_END_C - 0.5 * T_WASTE_STEP_C, -T_WASTE_STEP_C)
     )
 
-    print(f"Sweep über T_waste = {T_WASTE_RANGE_C[0]:.0f} .. {T_WASTE_RANGE_C[-1]:.0f} °C ...")
+    print(f"Sweeping T_waste = {T_WASTE_RANGE_C[0]:.0f} .. {T_WASTE_RANGE_C[-1]:.0f} °C ...")
     points = sweep_relative_lift_window_homotopy(T_WASTE_RANGE_C, config)
 
     select_and_plot_duehring(points)

@@ -1,99 +1,100 @@
-"""Reines Dühring-/Gleichgewichts-Screening für den DOUBLE-LIFT AHT -- OHNE Solver.
+"""Pure Duehring/equilibrium screening for the DOUBLE-LIFT AHT -- NO solver.
 
-Direktes Analogon zu AHT_duehring_screening.py (single-lift), erweitert um eine
-zweite Verdampfer-Absorber-Stufe. Beantwortet dieselbe Frage wie das Single-Lift-
-Skript ("welcher GTL ist bei welcher Abwärmetemperatur thermodynamisch überhaupt
-maximal drin?"), diesmal für die zweistufige ("double-lift") AHT-Bauart, bevor
-irgendein Pinch-Modell oder Optimierer angeworfen wird. Nutzt ausschliesslich:
+Direct analog of AHT_duehring_screening.py (single-lift), extended by a
+second evaporator-absorber stage. Answers the same question as the
+single-lift script ("what GTL is even thermodynamically achievable at most
+at a given waste-heat temperature?"), this time for the two-stage
+("double-lift") AHT design, before any pinch model or optimizer runs. Uses
+only:
 
-  - die LiBr/H2O-Gleichgewichtsbeziehung (Pátek-Korrelationen in
+  - the LiBr/H2O equilibrium relation (Patek correlations in
     Thermodynamic_Properties.libr_props),
-  - die Kristallisationsgrenze nach Albers/Boryta,
-  - die Wasser-Sättigungsfunktionen aus Models.AHT_Pinch_Point (identische
-    CoolProp-Quelle wie im eigentlichen Solvermodell, daher konsistent).
+  - the Albers/Boryta crystallization limit,
+  - the water saturation functions from Models.AHT_Pinch_Point (same
+    CoolProp source as the actual solver model, so consistent).
 
-Kein Massen-/Energiebilanz-Solve, keine Kreislaufskalierung, kein Zirkulations-
-verhältnis -- exakt dieselben Vereinfachungen wie im single-lift Skript, siehe
-dessen Docstring. Das Ergebnis ist auch hier bewusst eine OPTIMISTISCHE
-Abschätzung (Pinch nur am jeweils bindenden Ende, nicht über den vollen
-Gegenstrom-Temperaturverlauf).
+No mass/energy balance solve, no cycle scaling, no circulation ratio --
+exactly the same simplifications as in the single-lift script, see its
+docstring. Here too the result is deliberately an OPTIMISTIC estimate
+(pinch only at the binding end, not over the full counterflow temperature
+profile).
 
-Physikalisches Bild (Double-Lift AHT, "serial flow" Bauart nach Saito et al.
-2015 / Lubis et al. 2017, siehe auch den Übersichtsartikel Cudok et al. 2021,
+Physical picture (double-lift AHT, "serial flow" design per Saito et al.
+2015 / Lubis et al. 2017; see also the review Cudok et al. 2021,
 "Absorption heat transformer - state-of-the-art of industrial applications",
-Renew. Sustain. Energy Rev. 141, 110757, Fig. 2 rechte Seite)
+Renew. Sustain. Energy Rev. 141, 110757, Fig. 2 right side)
 -------------------------------------------------------------------------------
-Ein Double-Lift-AHT hat -- im Unterschied zum single-lift AHT mit 2 Druck-
-niveaus -- DREI Druckniveaus, aber weiterhin nur EINEN Desorber und EINEN
-Kondensator:
+Unlike the single-lift AHT with 2 pressure levels, a double-lift AHT has
+THREE pressure levels, but still only ONE desorber and ONE condenser:
 
-  - Desorber (G) + Kondensator (C) auf dem NIEDRIGSTEN Druckniveau p_low:
-    Abwärme bei T13 treibt die Lösung im Desorber aus (wie im single-lift
-    Fall), der Dampf kondensiert bei T17 (Rückkühlung). Der Desorber liefert
-    die stark aufkonzentrierte Lösung x_strong -- identisch zur single-lift
-    Herleitung (Schritt 1-3 unten sind wortwörtlich dieselben Gleichungen).
+  - Desorber (G) + condenser (C) at the LOWEST pressure level p_low: waste
+    heat at T13 drives solution out in the desorber (as in the single-lift
+    case), the vapor condenses at T17 (reject cooling). The desorber
+    delivers the strongly concentrated solution x_strong -- identical to
+    the single-lift derivation (steps 1-3 below are literally the same
+    equations).
 
-  - Verdampfer/Absorber-Verbund NIEDRIGER Stufe (EL/AL) auf mittlerem
-    Druckniveau p_mid: EL wird -- wie der einzelne Verdampfer im single-lift
-    Fall -- von der externen Abwärme bei T15 gespeist. AL absorbiert diesen
-    Dampf mit der (in dieser Näherung unverdünnten) starken Lösung x_strong
-    und liefert dabei eine erste angehobene Temperatur T_AL -- das ist exakt
-    der "GTL" des single-lift Falls, hier aber nur die ERSTE von zwei Stufen.
+  - Low-stage evaporator/absorber pair (EL/AL) at the intermediate pressure
+    level p_mid: EL is fed -- like the single evaporator in the single-lift
+    case -- by the external waste heat at T15. AL absorbs this vapor with
+    the (in this approximation undiluted) strong solution x_strong,
+    delivering a first raised temperature T_AL -- exactly the "GTL" of the
+    single-lift case, but here only the FIRST of two stages.
 
-  - Verdampfer/Absorber-Verbund HOHER Stufe (EH/AH) auf dem höchsten Druck-
-    niveau p_high: Der Clou des Double-Lift-Zyklus ist, dass AL NICHT die
-    Nutzwärme nach aussen abgibt, sondern intern EH antreibt ("the low
-    pressure absorber AL drives the higher pressure evaporator EH by internal
-    heat exchange", Cudok et al. 2021). AH absorbiert diesen zweiten Dampf-
-    strom -- wieder mit x_strong -- und liefert erst hier, bei T_AH, die
-    tatsächlich nutzbare Wärme. Der Gesamt-GTL bezogen auf die Abwärme T15
-    ist damit die Summe zweier "Lifts" (T_AL - T15) + (T_AH - T_AL).
+  - High-stage evaporator/absorber pair (EH/AH) at the highest pressure
+    level p_high: the key idea of the double-lift cycle is that AL does
+    NOT reject its heat externally as useful heat, but instead internally
+    drives EH ("the low pressure absorber AL drives the higher pressure
+    evaporator EH by internal heat exchange", Cudok et al. 2021). AH
+    absorbs this second vapor stream -- again with x_strong -- and only
+    here, at T_AH, delivers the actually usable heat. The total GTL
+    relative to the waste heat T15 is thus the sum of two "lifts":
+    (T_AL - T15) + (T_AH - T_AL).
 
-Vereinfachung ggü. der realen "serial flow" Schaltung (WICHTIG, unbedingt
-lesen)
+Simplification vs. the real "serial flow" circuit (IMPORTANT, please read)
 -------------------------------------------------------------------------------
-In der realen serial-flow Schaltung durchläuft EIN Lösungsstrom zuerst AH
-(dort noch unverdünnt, x_strong) und erst danach -- über ein Druckminderventil
-auf p_mid entspannt und bereits teilweise verdünnt -- AL. Für AL stünde also
-real eine SCHWÄCHERE Konzentration zur Verfügung als x_strong, was den in AL
-erreichbaren GTL1 gegenüber der hier berechneten Schranke reduzieren würde.
+In the real serial-flow circuit, ONE solution stream first passes through AH
+(still undiluted there, x_strong) and only afterward -- throttled to p_mid
+and already partially diluted -- through AL. So in reality AL would have a
+WEAKER concentration available than x_strong, which would reduce the GTL1
+achievable in AL compared to the bound computed here.
 
-Diese Kopplung liesse sich nur mit einer Massenbilanz (Zirkulationsverhältnis)
-auflösen -- exakt das, was auch das single-lift Skript bewusst weglässt. Um
-beide Skripte strukturell und im Vereinfachungsgrad vergleichbar zu halten,
-wird hier stattdessen die (parallele) Näherung getroffen, dass sowohl AL als
-auch AH mit der vollen, unverdünnten Konzentration x_strong aus dem Desorber
-gespeist werden (entspricht in der Literatur der "parallel feed" Variante
-des Double-/Dual-Absorption-Heat-Transformers). Das macht die hier berechnete
-GTL_total-Schranke NOCH optimistischer als eine reale serial-flow Auslegung
-liefern würde -- also weiterhin eine gültige, nur eben etwas grosszügigere
-obere Schranke. Das volle Pinch-Modell mit Massenbilanz liefert danach die
-tatsächlich erreichbare, engere Grenze (analog zur Rolle von
-AHT_feasibility_sweep.py / AHT_design_point_optimizer.py für den single-lift
-Fall).
+This coupling could only be resolved with a mass balance (circulation
+ratio) -- exactly what the single-lift script also deliberately omits. To
+keep both scripts structurally comparable and at the same level of
+simplification, this script instead makes the (parallel) approximation
+that both AL and AH are fed with the full, undiluted concentration
+x_strong from the desorber (corresponding, in the literature, to the
+"parallel feed" variant of the double/dual absorption heat transformer).
+This makes the GTL_total bound computed here EVEN MORE optimistic than a
+real serial-flow design would achieve -- so still a valid, just somewhat
+more generous, upper bound. The full pinch model with a mass balance then
+gives the actually achievable, tighter limit (analogous to the role of
+AHT_feasibility_sweep.py / AHT_design_point_optimizer.py for the
+single-lift case).
 
-Kristallisation wird -- wie im single-lift Skript -- nur am Desorberaustritt
-(T_gen, w_strong) geprüft: das ist der kälteste Punkt im gesamten Kreislauf,
-an dem die Lösung die Konzentration x_strong trägt, und damit der bindende
-Kristallisationscheck (AL und AH liegen bei gleicher Konzentration, aber
-höherer Temperatur, also unkritischer).
+As in the single-lift script, crystallization is checked only at the
+desorber outlet (T_gen, w_strong): that's the coldest point in the whole
+cycle where the solution carries the concentration x_strong, and hence the
+binding crystallization check (AL and AH sit at the same concentration but
+higher temperature, so less critical).
 
-Was hier NICHT abgebildet wird (bewusst, für Geschwindigkeit, siehe auch
-single-lift Skript):
-  - Massenstromaufteilung / Zirkulationsverhältnis (FR) je Stufe
-  - die reale Verdünnung der Lösung beim Durchlauf AH -> AL (siehe oben)
-  - SHEX-Wärmerückgewinnung, Vorabsorption
-  - der tatsächliche Temperaturverlauf über die Wärmeübertrager (nur der
-    jeweils bindende Pinch-Punkt wird betrachtet, nicht LMTD/Gegenstrom)
-  - UA-Werte / Baugrösse
+What this deliberately does NOT capture (for speed, see also the
+single-lift script):
+  - mass-flow split / circulation ratio (FR) per stage
+  - the real dilution of the solution passing through AH -> AL (see above)
+  - SHEX heat recovery, pre-absorption
+  - the actual temperature profile across the heat exchangers (only the
+    binding pinch point is considered, not LMTD/counterflow)
+  - UA values / equipment size
 
--> Ergebnis ist eine OBERE Schranke, optimistischer als die reale serial-flow
-   Bauart. Ein vollständiges Pinch-Modell mit Massenbilanz liefert danach die
-   tatsächlich erreichbare, engere Grenze.
+-> The result is an UPPER bound, more optimistic than the real serial-flow
+   design. A full pinch model with a mass balance then gives the actually
+   achievable, tighter limit.
 
-Aufruf als Skript
+Standalone usage
 -----------------
-    python Design_Point/AHT_duehring_screening_double_lift.py
+    python Design_Point/AHT_DL_duehring_screening.py
 """
 
 from __future__ import annotations
@@ -121,18 +122,17 @@ X_HI = lp.X_MAX_PAT - 1.0e-6
 
 
 # ---------------------------------------------------------------------------
-# Kernfunktionen
+# Core functions
 # ---------------------------------------------------------------------------
 
 def concentration_for_boiling_point(p_pa: float, T_target_K: float) -> float:
-    """Invertiert T_sat_solution_from_p_x: liefert x, sodass die Lösung bei
-    p_pa genau bei T_target_K siedet. Wirft ValueError, wenn T_target_K
-    ausserhalb des bei diesem Druck erreichbaren Bereichs liegt.
+    """Inverts T_sat_solution_from_p_x: returns x such that the solution
+    boils at exactly T_target_K at p_pa. Raises ValueError if T_target_K is
+    outside the range reachable at this pressure.
 
-    Identisch zur gleichnamigen Funktion in AHT_duehring_screening.py
-    (single-lift) -- hier dupliziert, damit dieses Skript eigenständig
-    lauffähig bleibt, ohne einen Import aus dem single-lift Modul zu
-    benötigen."""
+    Identical to the same-named function in AHT_duehring_screening.py
+    (single-lift) -- duplicated here so this script stays runnable
+    standalone, without needing an import from the single-lift module."""
 
     def f(x: float) -> float:
         return lp.T_sat_solution_from_p_x(p_pa, x) - T_target_K
@@ -141,15 +141,15 @@ def concentration_for_boiling_point(p_pa: float, T_target_K: float) -> float:
     f_hi = f(X_HI)
     if f_lo > 0.0:
         raise ValueError(
-            f"T_target={T_target_K:.3f} K liegt unterhalb des Siedepunkts von "
-            f"reinem Wasser bei p={p_pa:.1f} Pa -- keine Aufkonzentration möglich "
-            "(Antriebstemperatur zu niedrig relativ zu diesem Druckniveau)."
+            f"T_target={T_target_K:.3f} K is below the boiling point of pure "
+            f"water at p={p_pa:.1f} Pa -- no concentrating possible "
+            "(driving temperature too low relative to this pressure level)."
         )
     if f_lo * f_hi > 0.0:
         raise ValueError(
-            f"T_target={T_target_K:.3f} K ist bei p={p_pa:.1f} Pa mit keiner "
-            f"LiBr-Konzentration im gültigen Bereich [{X_LO:.2e}, {X_HI:.6f}] "
-            "erreichbar (Antriebstemperatur zu hoch / ausserhalb Patek-Bereich)."
+            f"T_target={T_target_K:.3f} K is not reachable at p={p_pa:.1f} Pa "
+            f"with any LiBr concentration in the valid range [{X_LO:.2e}, {X_HI:.6f}] "
+            "(driving temperature too high / outside the Patek range)."
         )
     return float(brentq(f, X_LO, X_HI))
 
@@ -177,23 +177,23 @@ class DuehringScreeningResultDoubleLift:
     w_strong: float = float("nan")
     T_gen_C: float = float("nan")
 
-    # Stufe 1 (EL/AL, mittleres Druckniveau)
+    # Stage 1 (EL/AL, intermediate pressure level)
     T10L_C: float = float("nan")
     T_AL_max_C: float = float("nan")
     GTL1_max_K: float = float("nan")
 
-    # Stufe 2 (EH/AH, höchstes Druckniveau) -- von AL intern angetrieben
+    # Stage 2 (EH/AH, highest pressure level) -- internally driven by AL
     T10H_C: float = float("nan")
     T_AH_max_C: float = float("nan")
     GTL2_max_K: float = float("nan")
 
-    # Gesamt-Lift bezogen auf die Abwärme T15 (= GTL1_max_K + GTL2_max_K)
+    # Total lift relative to the waste heat T15 (= GTL1_max_K + GTL2_max_K)
     GTL_total_max_K: float = float("nan")
 
     crystallization_safe: bool = True
     crystallization_message: str = ""
-    # True, wenn x_strong auf die Löslichkeitsgrenze geklemmt wurde -- siehe
-    # Kommentar in estimate_max_gtl_double_lift() bzw. im single-lift Skript.
+    # True if x_strong was clamped to the solubility limit -- see the
+    # comment in estimate_max_gtl_double_lift() and in the single-lift script.
     crystallization_limited: bool = False
 
 
@@ -209,13 +209,13 @@ def estimate_max_gtl_double_lift(
     dT_min_evap2: float = 5.0,
     dT_min_abs2: float = 5.0,
 ) -> DuehringScreeningResultDoubleLift:
-    """Optimistische obere Schranke für den erreichbaren Gesamt-GTL eines
-    Double-Lift-AHT, siehe Modul-Docstring.
+    """Optimistic upper bound on the achievable total GTL of a double-lift
+    AHT, see module docstring.
 
-    dT_min_des/_evap/_cond/_abs beziehen sich -- wie im single-lift Skript --
-    auf Desorber, Verdampfer der Stufe 1 (EL), Kondensator bzw. Absorber der
-    Stufe 1 (AL). dT_min_evap2/_abs2 sind die analogen Pinch-Annahmen für den
-    intern angetriebenen Verdampfer (EH) bzw. Endabsorber (AH) der Stufe 2.
+    dT_min_des/_evap/_cond/_abs refer -- as in the single-lift script -- to
+    the desorber, stage-1 evaporator (EL), condenser, and stage-1 absorber
+    (AL). dT_min_evap2/_abs2 are the analogous pinch assumptions for the
+    internally driven stage-2 evaporator (EH) and final absorber (AH).
     """
 
     common = dict(
@@ -225,18 +225,18 @@ def estimate_max_gtl_double_lift(
         dT_min_evap2=dT_min_evap2, dT_min_abs2=dT_min_abs2,
     )
 
-    # 1) Kondensatordruck aus T17 (Pinch am kalten Ende) -- identisch single-lift
+    # 1) Condenser pressure from T17 (pinch at the cold end) -- identical to single-lift
     T8_K = celsius_to_kelvin(T17_C) + dT_min_cond
     p_low = water_p_sat_from_T(T8_K, Q=0.0)
 
-    # 2) Verdampferdruck Stufe 1 aus T15 (Pinch am heissen Ende, optimistisch)
+    # 2) Stage-1 evaporator pressure from T15 (pinch at the hot end, optimistic)
     T10L_K = celsius_to_kelvin(T15_C) - dT_min_evap
     try:
         p_mid = water_p_sat_from_T(T10L_K, Q=1.0)
     except Exception as exc:
         return DuehringScreeningResultDoubleLift(
             **common, feasible=False,
-            message=f"Verdampferdruck Stufe 1 (EL) nicht berechenbar: {exc}",
+            message=f"Stage-1 (EL) evaporator pressure not computable: {exc}",
             p_low_Pa=p_low,
         )
 
@@ -245,13 +245,13 @@ def estimate_max_gtl_double_lift(
             **common, feasible=False,
             message=(
                 f"p_mid ({p_mid:.0f} Pa) <= p_low ({p_low:.0f} Pa): "
-                "Abwärmetemperatur T15 zu niedrig relativ zur Rückkühlung T17 "
-                "-- Stufe 1 (EL/AL) kann so nicht angetrieben werden."
+                "waste-heat temperature T15 too low relative to reject "
+                "cooling T17 -- stage 1 (EL/AL) cannot be driven this way."
             ),
             p_low_Pa=p_low, p_mid_Pa=p_mid,
         )
 
-    # 3) Desorber-Gleichgewicht: x_strong aus T13 und p_low -- identisch single-lift
+    # 3) Desorber equilibrium: x_strong from T13 and p_low -- identical to single-lift
     T_gen_K = celsius_to_kelvin(T13_C) - dT_min_des
     try:
         x_strong = concentration_for_boiling_point(p_low, T_gen_K)
@@ -265,13 +265,13 @@ def estimate_max_gtl_double_lift(
 
     w_strong = lp.w_libr_from_x(x_strong)
 
-    # 4) Kristallisationscheck am Desorberaustritt (kältester Punkt bei x_strong)
+    # 4) Crystallization check at the desorber outlet (coldest point at x_strong)
     validity = lp.validate_solution_state(
-        T_gen_K, w_strong, label="Desorberaustritt (Double-Lift-Dühring-Screening)"
+        T_gen_K, w_strong, label="Desorber outlet (double-lift Duehring screening)"
     )
 
-    # 4b) Auf die Löslichkeitsgrenze klemmen, statt den Punkt zu verwerfen --
-    # identische Logik wie im single-lift Skript (dort ausführlich kommentiert).
+    # 4b) Clamp to the solubility limit instead of discarding the point --
+    # identical logic as in the single-lift script (commented in detail there).
     crystallization_limited = False
     if validity.crystallization_checked and not validity.crystallization_safe:
         w_lo, w_hi = 0.57, w_strong
@@ -286,18 +286,18 @@ def estimate_max_gtl_double_lift(
         w_strong = lp.w_libr_from_x(x_strong)
         validity = lp.validate_solution_state(
             T_gen_K, w_strong,
-            label="Desorberaustritt (Double-Lift-Dühring-Screening, an Löslichkeitsgrenze geklemmt)",
+            label="Desorber outlet (double-lift Duehring screening, clamped to solubility limit)",
         )
         crystallization_limited = True
 
-    # 5) Stufe 1: AL mit x_strong bei p_mid -> T_AL_max (= "GTL1", analog zum
-    #    T12_max des single-lift Skripts)
+    # 5) Stage 1: AL with x_strong at p_mid -> T_AL_max (= "GTL1", analogous
+    #    to T12_max in the single-lift script)
     try:
         T_AL_solution_K = lp.T_sat_solution_from_p_x(p_mid, x_strong)
     except Exception as exc:
         return DuehringScreeningResultDoubleLift(
             **common, feasible=False,
-            message=f"Absorber-Gleichgewichtstemperatur Stufe 1 (AL) nicht berechenbar: {exc}",
+            message=f"Stage-1 (AL) absorber equilibrium temperature not computable: {exc}",
             p_low_Pa=p_low, p_mid_Pa=p_mid,
             x_strong=x_strong, w_strong=w_strong,
             T_gen_C=kelvin_to_celsius(T_gen_K), T10L_C=kelvin_to_celsius(T10L_K),
@@ -324,26 +324,26 @@ def estimate_max_gtl_double_lift(
     if not validity.crystallization_safe:
         return DuehringScreeningResultDoubleLift(
             **partial_common, feasible=False,
-            message=f"Kristallisationsrisiko: {validity.message}",
+            message=f"Crystallization risk: {validity.message}",
         )
     if GTL1_max_K <= 0.0:
         return DuehringScreeningResultDoubleLift(
             **partial_common, feasible=False,
             message=(
-                f"T_AL_max ({T_AL_max_C:.2f} °C) liegt nicht über T15 "
-                f"({T15_C:.2f} °C) -- Stufe 1 liefert keinen positiven Lift, "
-                "Stufe 2 kann so nicht angetrieben werden."
+                f"T_AL_max ({T_AL_max_C:.2f} °C) is not above T15 "
+                f"({T15_C:.2f} °C) -- stage 1 delivers no positive lift, "
+                "stage 2 cannot be driven this way."
             ),
         )
 
-    # 6) Verdampferdruck Stufe 2 (EH): angetrieben von AL, Pinch am heissen Ende
+    # 6) Stage-2 (EH) evaporator pressure: driven by AL, pinch at the hot end
     T10H_K = T_AL_max_K - dT_min_evap2
     try:
         p_high = water_p_sat_from_T(T10H_K, Q=1.0)
     except Exception as exc:
         return DuehringScreeningResultDoubleLift(
             **partial_common, feasible=False,
-            message=f"Verdampferdruck Stufe 2 (EH) nicht berechenbar: {exc}",
+            message=f"Stage-2 (EH) evaporator pressure not computable: {exc}",
         )
 
     if p_high <= p_mid:
@@ -351,18 +351,18 @@ def estimate_max_gtl_double_lift(
             **partial_common, feasible=False, p_high_Pa=p_high,
             message=(
                 f"p_high ({p_high:.0f} Pa) <= p_mid ({p_mid:.0f} Pa): "
-                "T_AL_max zu niedrig relativ zu p_mid, um EH (Stufe 2) über den "
-                "hier angesetzten Pinch dT_min_evap2 anzutreiben."
+                "T_AL_max too low relative to p_mid to drive EH (stage 2) "
+                "over the pinch dT_min_evap2 assumed here."
             ),
         )
 
-    # 7) Stufe 2: AH mit x_strong bei p_high -> T_AH_max (finale Nutzwärme)
+    # 7) Stage 2: AH with x_strong at p_high -> T_AH_max (final useful heat)
     try:
         T_AH_solution_K = lp.T_sat_solution_from_p_x(p_high, x_strong)
     except Exception as exc:
         return DuehringScreeningResultDoubleLift(
             **partial_common, feasible=False, p_high_Pa=p_high,
-            message=f"Absorber-Gleichgewichtstemperatur Stufe 2 (AH) nicht berechenbar: {exc}",
+            message=f"Stage-2 (AH) absorber equilibrium temperature not computable: {exc}",
         )
 
     T_AH_max_K = T_AH_solution_K - dT_min_abs2
@@ -373,14 +373,14 @@ def estimate_max_gtl_double_lift(
     feasible = validity.crystallization_safe and GTL1_max_K > 0.0 and GTL2_max_K > 0.0
     if GTL2_max_K <= 0.0:
         message = (
-            f"T_AH_max ({T_AH_max_C:.2f} °C) liegt nicht über T_AL_max "
-            f"({T_AL_max_C:.2f} °C) -- Stufe 2 liefert keinen positiven "
-            "Zusatzlift."
+            f"T_AH_max ({T_AH_max_C:.2f} °C) is not above T_AL_max "
+            f"({T_AL_max_C:.2f} °C) -- stage 2 delivers no positive "
+            "additional lift."
         )
     elif crystallization_limited:
-        message = "OK (an Löslichkeitsgrenze geklemmt, nicht voller Desorber-Pinch ausgenutzt)."
+        message = "OK (clamped to solubility limit, full desorber pinch not used)."
     else:
-        message = "OK (optimistische obere Schranke, parallel-feed Näherung)."
+        message = "OK (optimistic upper bound, parallel-feed approximation)."
 
     return DuehringScreeningResultDoubleLift(
         **partial_common, feasible=feasible, message=message,
@@ -391,7 +391,7 @@ def estimate_max_gtl_double_lift(
 
 
 # ---------------------------------------------------------------------------
-# Sweep über Abwärmetemperatur (T13 = T15, "parallel"-Fall, wie single-lift)
+# Sweep over waste-heat temperature (T13 = T15, "parallel" case, as in single-lift)
 # ---------------------------------------------------------------------------
 
 def sweep_waste_heat_temperature_double_lift(
@@ -405,9 +405,9 @@ def sweep_waste_heat_temperature_double_lift(
     dT_min_evap2: float = 5.0,
     dT_min_abs2: float = 5.0,
 ) -> List[DuehringScreeningResultDoubleLift]:
-    """Setzt T13 = T15 = T_waste (parallele Verschaltung von Desorber und
-    Verdampfer der Stufe 1) und wertet estimate_max_gtl_double_lift() für
-    jeden Wert aus T_waste_values_C aus."""
+    """Sets T13 = T15 = T_waste (parallel routing of desorber and stage-1
+    evaporator) and evaluates estimate_max_gtl_double_lift() for each value
+    in T_waste_values_C."""
     return [
         estimate_max_gtl_double_lift(
             T13_C=t, T15_C=t, T17_C=T17_C,
@@ -425,16 +425,16 @@ def print_results_table(results: Sequence[DuehringScreeningResultDoubleLift]) ->
         f"{'T_waste[C]':>10} {'T17[C]':>7} {'x_strong':>9} "
         f"{'T_AL_max[C]':>12} {'GTL1[K]':>8} "
         f"{'T_AH_max[C]':>12} {'GTL2[K]':>8} {'GTL_tot[K]':>11} "
-        f"{'Kristall.':>10}  Hinweis"
+        f"{'Cryst.':>10}  Note"
     )
     print("-" * 140)
     for r in results:
         if not r.crystallization_safe:
-            krist = "RISIKO"
+            krist = "RISK"
         elif r.crystallization_limited:
-            krist = "geklemmt"
+            krist = "clamped"
         else:
-            krist = "sicher"
+            krist = "safe"
         print(
             f"{r.T13_C:10.2f} {r.T17_C:7.2f} {r.x_strong:9.4f} "
             f"{r.T_AL_max_C:12.2f} {r.GTL1_max_K:8.2f} "
@@ -457,12 +457,15 @@ def plot_gtl_vs_waste_heat_double_lift(
     save_path: Optional[str] = "Design_Point/Plots/duehring_screening_GTL_double_lift_3K.png",
     show: bool = True,
 ):
-    """Eine Kurve GTL_total_max vs. Abwärmetemperatur je T17-Wert. Infeasible/
-    Kristallisationsrisiko-Punkte werden als leere Marker dargestellt --
-    Aufbau identisch zu plot_gtl_vs_waste_heat() im single-lift Skript."""
+    """One curve of GTL_total_max vs. waste-heat temperature per T17 value.
+    Infeasible/crystallization-risk points are drawn as hollow markers --
+    layout identical to plot_gtl_vs_waste_heat() in the single-lift script."""
     import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots(figsize=(8.5, 6.0))
+    palette = ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9"]
+
+    fig, ax = plt.subplots(figsize=(7.0, 5.0))
+    ax.set_prop_cycle(color=palette)
 
     all_results = {}
     for T17_C in T17_values_C:
@@ -478,27 +481,20 @@ def plot_gtl_vs_waste_heat_double_lift(
         y = np.array([r.GTL_total_max_K for r in results])
         ok = np.array([r.feasible for r in results])
 
-        (line,) = ax.plot(x[ok], y[ok], "o-", label=f"T17 = {T17_C:.0f} °C")
+        (line,) = ax.plot(x[ok], y[ok], "o-", linewidth=1.8, markersize=5, label=f"T17 = {T17_C:.0f} °C")
         if np.any(~ok):
-            ax.plot(
-                x[~ok], y[~ok], "x", color=line.get_color(),
-                markersize=8, markeredgewidth=2,
-            )
+            ax.plot(x[~ok], y[~ok], "x", color=line.get_color(), markersize=7, markeredgewidth=2)
 
-    ax.set_xlabel("Abwärmetemperatur T13 = T15 [°C]")
-    ax.set_ylabel(
-        "Maximaler Gesamt-GTL = T_AH,max - T15 [K]\n"
-        "(optimistische obere Schranke, parallel-feed Näherung)"
-    )
-    ax.set_title("Double-Lift Dühring-Screening: theoretisch maximaler Gesamt-GTL vs. Abwärmetemperatur")
-    ax.axhline(0.0, color="0.5", linewidth=0.8)
-    ax.grid(alpha=0.4)
-    ax.legend(title="× = Kristallisationsrisiko\noder GTL ≤ 0 in einer Stufe")
+    ax.set_xlabel("Waste-heat temperature T13 = T15 [°C]")
+    ax.set_ylabel("Max. total GTL [K]")
+    ax.axhline(0.0, color="0.6", linewidth=0.8)
+    ax.grid(alpha=0.3)
+    ax.legend(title="× not feasible", frameon=False, fontsize=9, title_fontsize=9)
 
     fig.tight_layout()
     if save_path is not None:
         fig.savefig(save_path, dpi=150, bbox_inches="tight")
-        print(f"Plot gespeichert: {save_path}")
+        print(f"Plot saved: {save_path}")
     if show:
         plt.show()
 
@@ -507,7 +503,7 @@ def plot_gtl_vs_waste_heat_double_lift(
 
 if __name__ == "__main__":
     # ------------------------------------------------------------------
-    # HIER ANPASSEN: Pinch-Annahmen für die optimistische Abschätzung
+    # ADJUST HERE: pinch assumptions for the optimistic estimate
     # ------------------------------------------------------------------
     DT_MIN_DES = 5.0
     DT_MIN_EVAP = 5.0
@@ -519,7 +515,7 @@ if __name__ == "__main__":
     T_WASTE_RANGE_C = list(np.arange(40.0, 85.0, 5.0))
     T17_CURVES_C = [15.0, 20.0, 25.0]
 
-    print("Double-Lift Dühring-Screening für T17 = 20 °C:")
+    print("Double-lift Duehring screening for T17 = 20 °C:")
     results = sweep_waste_heat_temperature_double_lift(
         T_WASTE_RANGE_C, T17_C=20.0,
         dT_min_des=DT_MIN_DES, dT_min_evap=DT_MIN_EVAP,
