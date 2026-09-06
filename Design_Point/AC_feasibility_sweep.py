@@ -707,7 +707,7 @@ if __name__ == "__main__":
             select_and_plot_duehring,
         )
         select_and_plot_duehring(
-            points, everys_nth=MULTI_PLOT_EVERY_NTH,
+            points, every_nth=MULTI_PLOT_EVERY_NTH,
             save_path=f"Design_Point/Plots/{duehring_plot_name}.png",
         )
 
