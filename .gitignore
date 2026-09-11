@@ -2,3 +2,4 @@ _pychache_
 Jupyter
 *.pdf
 *.png
+*.svg
