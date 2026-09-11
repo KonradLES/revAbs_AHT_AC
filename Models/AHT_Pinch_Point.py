@@ -19,6 +19,11 @@ Condenser specification is variable:
 Cycle scaling is variable:
 - cycle_scale_spec_mode = "m6": m6_spec is given
 - cycle_scale_spec_mode = "Qabs": Qabs_spec_kW is given, m6 is computed
+- cycle_scale_spec_mode = "Qdes_eva": Qdes_eva_spec_kW (= Q_des + Q_evap)
+  is given, m6 is computed. The split between Q_des and Q_evap is not
+  assumed (e.g. not fixed 50:50); it follows from the converged solution
+  state, since Q_des and Q_evap are both proportional to m6 for fixed
+  intensive state. See _resolve_cycle_scale() for the resolution.
 
 Model assumptions
 ------------------
@@ -67,7 +72,7 @@ physical solution.
 from __future__ import annotations
 
 import math
-from dataclasses import KW_ONLY, dataclass
+from dataclasses import KW_ONLY, dataclass, replace
 from typing import Dict, List, Tuple
 
 import numpy as np
@@ -152,9 +157,11 @@ class AHTInputs:
     # Cycle scaling specification:
     # - "m6": m6_spec is given
     # - "Qabs": Qabs_spec_kW is given, m6 is computed
+    # - "Qdes_eva": Qdes_eva_spec_kW is given, m6 is computed    
     cycle_scale_spec_mode: str = "m6"
     m6_spec: float | None = None
     Qabs_spec_kW: float | None = None
+    Qdes_eva_spec_kW: float | None = None
 
     # External absorber stream specification:
     # - "m11": m11_spec is given, T12 is computed
@@ -250,8 +257,8 @@ class AHTInputs:
                     "must not be set; internally T13 = T16."
                 )
 
-        if self.cycle_scale_spec_mode not in {"m6", "Qabs"}:
-            raise ValueError("cycle_scale_spec_mode must be 'm6' or 'Qabs'.")
+        if self.cycle_scale_spec_mode not in {"m6", "Qabs", "Qdes_eva"}:
+            raise ValueError("cycle_scale_spec_mode must be 'm6', 'Qabs', or 'Qdes_eva'.")
         if self.cycle_scale_spec_mode == "m6":
             if self.m6_spec is None:
                 raise ValueError("For cycle_scale_spec_mode='m6', m6_spec must be given.")
@@ -259,9 +266,13 @@ class AHTInputs:
                 raise ValueError(
                     "For cycle_scale_spec_mode='m6', Qabs_spec_kW must not be set."
                 )
+            if self.Qdes_eva_spec_kW is not None:
+                raise ValueError(
+                    "For cycle_scale_spec_mode='m6', Qdes_eva_spec_kW must not be set."
+                )
             if self.m6_spec <= 0.0:
                 raise ValueError("For cycle_scale_spec_mode='m6', m6_spec > 0 must hold.")
-        else:
+        elif self.cycle_scale_spec_mode == "Qabs":
             if self.Qabs_spec_kW is None:
                 raise ValueError(
                     "For cycle_scale_spec_mode='Qabs', Qabs_spec_kW must be given."
@@ -270,8 +281,29 @@ class AHTInputs:
                 raise ValueError(
                     "For cycle_scale_spec_mode='Qabs', m6_spec must not be set."
                 )
+            if self.Qdes_eva_spec_kW is not None:
+                raise ValueError(
+                    "For cycle_scale_spec_mode='Qabs', Qdes_eva_spec_kW must not be set."
+                )
             if self.Qabs_spec_kW <= 0.0:
                 raise ValueError("For cycle_scale_spec_mode='Qabs', Qabs_spec_kW > 0 must hold.")
+        else:  # "Qdes_eva"
+            if self.Qdes_eva_spec_kW is None:
+                raise ValueError(
+                    "For cycle_scale_spec_mode='Qdes_eva', Qdes_eva_spec_kW must be given."
+                )
+            if self.m6_spec is not None:
+                raise ValueError(
+                    "For cycle_scale_spec_mode='Qdes_eva', m6_spec must not be set."
+                )
+            if self.Qabs_spec_kW is not None:
+                raise ValueError(
+                    "For cycle_scale_spec_mode='Qdes_eva', Qabs_spec_kW must not be set."
+                )
+            if self.Qdes_eva_spec_kW <= 0.0:
+                raise ValueError(
+                    "For cycle_scale_spec_mode='Qdes_eva', Qdes_eva_spec_kW > 0 must hold."
+                )
 
         if self.absorber_spec_mode not in {"m11", "T12"}:
             raise ValueError("absorber_spec_mode must be 'm11' or 'T12'.")
@@ -671,8 +703,44 @@ def _calculate_kpis(
     }
 
 
+def _resolve_m6_from_qdes_eva(z: np.ndarray, inputs: AHTInputs, *, strict: bool) -> float:
+    """Resolves m6 from a specified total desorber+evaporator duty Qdes_eva_spec_kW.
+    """
+    probe_inputs = replace(
+        inputs, cycle_scale_spec_mode="m6", m6_spec=1.0, Qdes_eva_spec_kW=None
+    )
+    try:
+        probe = _evaluate_model_common(z, probe_inputs, strict=False)
+    except _SoftResidualVector:
+        if strict:
+            raise ModelEvaluationError(
+                "Cannot resolve cycle scaling from Qdes_eva because the probe "
+                "evaluation hit an invalid pressure level (p_high <= p_low)."
+            )
+        return 1.0e-9
+
+    q_des_eva_specific = probe.heat_flows_kW["Q_des"] + probe.heat_flows_kW["Q_evap"]
+
+    if strict:
+        if q_des_eva_specific <= 1.0e-12:
+            raise ModelEvaluationError(
+                "Cannot resolve cycle scaling from Qdes_eva because the specific "
+                f"desorber+evaporator duty is not positive: {q_des_eva_specific:.6f} kW "
+                "per kg/s of m6."
+            )
+        m6 = float(inputs.Qdes_eva_spec_kW) / q_des_eva_specific
+        if m6 <= 0.0:
+            raise ModelEvaluationError(
+                f"Computed solution mass flow m6 is not positive: m6={m6:.6f} kg/s."
+            )
+        return m6
+
+    q_des_eva_safe = q_des_eva_specific if q_des_eva_specific > 1.0e-12 else 1.0e-12
+    return float(inputs.Qdes_eva_spec_kW) / q_des_eva_safe
+
+
 def _resolve_cycle_scale(
-    inputs: AHTInputs, *, w3: float, w6: float, h3: float, h4: float, h10: float, strict: bool
+    inputs: AHTInputs, *, z: np.ndarray, w3: float, w6: float, h3: float, h4: float, h10: float, strict: bool,
 ) -> float:
     """Resolves the cycle scaling to the pumped solution mass flow m6."""
     if inputs.cycle_scale_spec_mode == "m6":
@@ -680,6 +748,9 @@ def _resolve_cycle_scale(
         if strict and m6 <= 0.0:
             raise ModelEvaluationError("Pumped solution mass flow m6 must be positive.")
         return m6
+
+    if inputs.cycle_scale_spec_mode == "Qdes_eva":
+        return _resolve_m6_from_qdes_eva(z, inputs, strict=strict)
 
     w3_balance = w3 if strict else max(w3, 1.0e-9)
     ratio = w6 / w3_balance
@@ -980,7 +1051,7 @@ def _evaluate_model_common(z: np.ndarray, inputs: AHTInputs, *, strict: bool) ->
     # ------------------------------------------------------------------
     # 3) Cycle scaling and mass flows
     # ------------------------------------------------------------------
-    m6 = _resolve_cycle_scale(inputs, w3=w3, w6=w6, h3=h3, h4=h4, h10=h10, strict=strict)
+    m6 = _resolve_cycle_scale(inputs, z=z, w3=w3, w6=w6, h3=h3, h4=h4, h10=h10, strict=strict)
     m5 = m4 = m6
     w3_for_balance = w3 if strict else max(w3, 1.0e-9)
     m3 = m4 * w6 / w3_for_balance
@@ -1745,7 +1816,7 @@ def trace_model(z: np.ndarray, inputs: AHTInputs) -> ModelTrace:
         h3 = lp.h_solution_mass_kjkg(T3, x3)
         h4 = lp.h_solution_mass_kjkg(T4, x6)
         h10 = water_h_kjkg_PQ(p_high, Q=1.0)
-        m6 = _resolve_cycle_scale(inputs, w3=w3, w6=w6, h3=h3, h4=h4, h10=h10, strict=True)
+        m6 = _resolve_cycle_scale(inputs, z=z, w3=w3, w6=w6, h3=h3, h4=h4, h10=h10, strict=True)
         values["h3_kJ_kg"] = h3
         values["h4_kJ_kg"] = h4
         values["h10_kJ_kg"] = h10

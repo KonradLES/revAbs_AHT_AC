@@ -1,4 +1,4 @@
-"""Entry point for the AHT simulation with 7 primary unknowns.
+"""Entry point for the AHT simulation with 7 primary unknowns (test variant).
 
 Absorber specification is explicitly selectable:
 - ABSORBER_SPEC_MODE = "m11" -> give m11_spec, T12 is computed
@@ -17,8 +17,11 @@ Condenser specification is explicitly selectable:
 - CONDENSER_SPEC_MODE = "T18" -> give T18_spec_C, m17 is computed
 
 Cycle scaling is explicitly selectable:
-- CYCLE_SCALE_SPEC_MODE = "m6"   -> give m6_spec
-- CYCLE_SCALE_SPEC_MODE = "Qabs" -> give Qabs_spec_kW, m6 is computed
+- CYCLE_SCALE_SPEC_MODE = "m6"       -> give m6_spec
+- CYCLE_SCALE_SPEC_MODE = "Qabs"     -> give Qabs_spec_kW, m6 is computed
+- CYCLE_SCALE_SPEC_MODE = "Qdes_eva" -> give Qdes_eva_spec_kW (= Q_des + Q_evap),
+  m6 is computed. The split between Q_des and Q_evap is not assumed
+  (e.g. not fixed 50:50); it follows from the converged solution state.
 
 External thermal routing of desorber and evaporator is selectable:
 - DESORBER_EVAPORATOR_ROUTING_MODE = "parallel" -> T_13_C and T_15_C are given
@@ -54,7 +57,8 @@ DUEHRING_PLOT_VARIANT = "mass"  # "mass" or "mole"
 # ----------------------------------------------------------------------------
 
 # CYCLE_SCALE_SPEC_MODE = "m6"
-CYCLE_SCALE_SPEC_MODE = "Qabs"
+# CYCLE_SCALE_SPEC_MODE = "Qabs"
+CYCLE_SCALE_SPEC_MODE = "Qdes_eva"
 
 # ABSORBER_SPEC_MODE = "m11"
 ABSORBER_SPEC_MODE = "T12"
@@ -97,8 +101,10 @@ def build_example_inputs() -> AHTInputs:
         spec_kwargs["m6_spec"] = 1.0  # 1, 0.05, 0.236
     elif CYCLE_SCALE_SPEC_MODE == "Qabs":
         spec_kwargs["Qabs_spec_kW"] = 184.4  # 184.4, 6.9
+    elif CYCLE_SCALE_SPEC_MODE == "Qdes_eva":
+        spec_kwargs["Qdes_eva_spec_kW"] = 373.5  # waste heat into desorber+evaporator
     else:
-        raise ValueError("CYCLE_SCALE_SPEC_MODE must be 'm6' or 'Qabs'.")
+        raise ValueError("CYCLE_SCALE_SPEC_MODE must be 'm6', 'Qabs', or 'Qdes_eva'.")
 
     if ABSORBER_SPEC_MODE == "m11":
         spec_kwargs["m11_spec"] = 4  # 4, 0.2
