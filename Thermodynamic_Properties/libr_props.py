@@ -20,7 +20,6 @@ from __future__ import annotations
 import math
 import CoolProp.CoolProp as CP
 from dataclasses import dataclass
-import numpy
 
 from scipy.optimize import newton, root_scalar
 
@@ -31,6 +30,21 @@ T_MIN_PAT = 273.15
 T_MAX_PAT = 500.0
 X_MIN_PAT = 1.0e-9
 X_MAX_PAT = 0.399999  # Patek-Formulierungen enthalten den Faktor (0.4 - x)
+
+# brentq's defaults (xtol=2e-12, rtol~8.9e-16) target machine precision
+_T_SEARCH_XTOL = 1.0e-6   # K
+_T_SEARCH_RTOL = 1.0e-10
+_X_SEARCH_XTOL = 1.0e-9
+_X_SEARCH_RTOL = 1.0e-10
+
+# Cached low-level state object for repeated pure-water property lookups
+_WATER_STATE = CP.AbstractState("HEOS", "Water")
+
+
+def _water_h_kjkg_TP(T_K: float, p_Pa: float) -> float:
+    """Specific enthalpy of pure water at (T, p) [kJ/kg], via a cached AbstractState."""
+    _WATER_STATE.update(CP.PT_INPUTS, p_Pa, T_K)
+    return _WATER_STATE.hmass() / 1000.0
 
 
 class PropertyError(RuntimeError):
@@ -97,194 +111,160 @@ def x_from_w_libr(w_libr: float) -> float:
 # ---------------------------------------------------------------------------
 # Direct Patek functions (molar basis)
 # ---------------------------------------------------------------------------
+# Coefficients are module-level tuples (built once, not per call) so each
+# function below no longer rebuilds its coefficient lists on every call.
 
-def calc_cp_molar_patek(T: float, x_libr_mol: float) -> float:
-    """Molar heat capacity of the LiBr/H2O solution [J/mol/K]."""
-    T = _validate_T_patek_range(T, function_name="calc_cp_molar_patek")
-    cp_t = 76.0226
-    T_c = 647.096
-    T_t = 273.16
+_CP_SAT_ABG = tuple(zip(
+    (1.38801, -2.95318, 3.18721, -0.645473, 9.18946e5),   # alpha
+    (0, 2, 3, 6, 34),                                        # beta
+    (0, 2, 3, 5, 0),                                         # gamma
+))
+_CP_TERMS = tuple(zip(
+    (-1.42094e1, 4.04943e1, 1.11135e2, 2.29980e2, 1.34526e3, -1.41010e-2, 1.24977e-2, -6.83209e-4),  # a
+    (0, 0, 0, 0, 0, 2, 3, 4),   # t
+    (0, 0, 1, 2, 3, 0, 3, 2),   # n
+    (2, 3, 3, 3, 3, 2, 1, 1),   # m
+))
 
-    koef_a = [-1.42094e1, 4.04943e1, 1.11135e2, 2.29980e2, 1.34526e3, -1.41010e-2, 1.24977e-2, -6.83209e-4]
-    koef_t = [0, 0, 0, 0, 0, 2, 3, 4]
-    koef_n = [0, 0, 1, 2, 3, 0, 3, 2]
-    koef_m = [2, 3, 3, 3, 3, 2, 1, 1]
-
-    koef_beta = [0, 2, 3, 6, 34]
-    koef_gamma = [0, 2, 3, 5, 0]
-    koef_alpha = [1.38801, -2.95318, 3.18721, -0.645473, 9.18946e5]
-
-    x = _validate_x_patek_range(x_libr_mol, function_name="calc_cp_molar_patek")
-
-    cp_sat = cp_t * sum(
-        koef_alpha[i] * (1.0 - T / T_c) ** koef_beta[i] * (T / T_t) ** koef_gamma[i]
-        for i in range(5)
-    )
-
-    correction = 0.0
-    for a, t, n, m in zip(koef_a, koef_t, koef_n, koef_m):
-        correction += a * x**m * (0.4 - x) ** n * (T_c / (T - 221.0)) ** t
-
-    return (1.0 - x) * cp_sat + cp_t * correction
-
-
-
-def calc_h_molar_patek(T: float, x_libr_mol: float) -> float:
-    """Molar enthalpy of the LiBr/H2O solution [J/mol]."""
-    T = _validate_T_patek_range(T, function_name="calc_h_molar_patek")
-    T_c = 647.096
-    h_c = 37548.5
-
-    koef_a = [
+_H_SAT_AB = tuple(zip(
+    (-4.37196e-1, 3.03440e-1, -1.29582e0, -1.76410e-1),   # alpha
+    (1.0 / 3.0, 2.0 / 3.0, 5.0 / 6.0, 21.0 / 6.0),         # beta
+))
+_H_TERMS = tuple(zip(
+    (
         2.27431e0, -7.99511e0, 3.85239e2, -1.63940e4, -4.22562e2,
         1.13314e-1, -8.33474e0, -1.73833e4, 6.49763e0, 3.24552e3,
         -1.34643e4, 3.99322e4, -2.58877e5, -1.93046e-3, 2.80616e0,
         -4.04479e1, 1.45342e2, -2.74873e0, -4.49743e2, -1.21794e1,
         -5.83739e-3, 2.33910e-1, 3.41888e-1, 8.85259e0, -1.78731e1,
         7.35179e-2, -1.79430e-4, 1.84261e-3, -6.24282e-3, 6.84765e-3,
-    ]
-    koef_t = [0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5]
-    koef_n = [0, 1, 6, 6, 2, 0, 0, 4, 0, 4, 5, 5, 6, 0, 3, 5, 7, 0, 3, 1, 0, 4, 2, 6, 7, 0, 0, 1, 2, 3]
-    koef_m = [1, 1, 2, 3, 6, 1, 3, 5, 4, 5, 5, 6, 6, 1, 2, 2, 2, 5, 6, 7, 1, 1, 2, 2, 2, 3, 1, 1, 1, 1]
+    ),  # a
+    (0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5),  # t
+    (0, 1, 6, 6, 2, 0, 0, 4, 0, 4, 5, 5, 6, 0, 3, 5, 7, 0, 3, 1, 0, 4, 2, 6, 7, 0, 0, 1, 2, 3),  # n
+    (1, 1, 2, 3, 6, 1, 3, 5, 4, 5, 5, 6, 6, 1, 2, 2, 2, 5, 6, 7, 1, 1, 2, 2, 2, 3, 1, 1, 1, 1),  # m
+))
 
-    koef_beta = [1.0 / 3.0, 2.0 / 3.0, 5.0 / 6.0, 21.0 / 6.0]
-    koef_alpha = [-4.37196e-1, 3.03440e-1, -1.29582e0, -1.76410e-1]
+_P_TERMS = tuple(zip(
+    (-2.41303e2, 1.91750e7, -1.75521e8, 3.25430e7, 3.92571e2, -2.12626e3, 1.85127e8, 1.91216e3),  # a
+    (0, 0, 0, 0, 1, 1, 1, 1),   # t
+    (0, 5, 6, 3, 0, 2, 6, 0),   # n
+    (3, 4, 4, 8, 1, 1, 4, 6),   # m
+))
+_P_AB = tuple(zip(
+    (-7.85951783, 1.84408259, -11.7866497, 22.6807411, -15.9618719, 1.80122502),  # alpha
+    (1.0, 1.5, 3.0, 3.5, 4.0, 7.5),                                                # beta
+))
 
+_RHO_SAT_AB = tuple(zip(
+    (1.99274064, 1.09965342, -0.510839303, -1.75493479, -45.5170352, -6.7469445e5),   # alpha
+    (1.0 / 3.0, 2.0 / 3.0, 5.0 / 3.0, 16.0 / 3.0, 43.0 / 3.0, 110.0 / 3.0),            # beta
+))
+_RHO_TERMS = tuple(zip((1.746, 4.709), (0, 6), (1, 1)))  # a, t, m
+
+_S_SAT_AB = tuple(zip(
+    (-3.34112e-1, -8.47987e-1, -9.11980e-1, -1.64046e0),   # alpha
+    (1.0 / 3.0, 1.0, 8.0 / 3.0, 8.0),                        # beta
+))
+_S_TERMS = tuple(zip(
+    (
+        1.53091e0, -4.52564e0, 6.98302e2, -2.1666e4, -1.47533e3,
+        8.47012e-2, -6.59523e0, -2.95331e4, 9.56314e-3, -1.88679e-1,
+        9.31752e0, 5.78104e0, 1.38931e4, -1.71762e4, 4.15108e2,
+        -5.55647e4, -4.23409e-3, 3.05242e1, -1.67620e0, 1.48283e1,
+        3.03055e-3, -4.01810e-2, 1.49252e-1, 2.59240e0, -1.77421e-1,
+        -6.99650e-5, 6.05007e-4, -1.65228e-3, 1.22966e-3,
+    ),  # a
+    (0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5, 5),  # t
+    (0, 1, 6, 6, 2, 0, 0, 4, 0, 0, 4, 0, 4, 5, 2, 5, 0, 4, 0, 1, 0, 2, 4, 7, 1, 0, 1, 2, 3),  # n
+    (1, 1, 2, 3, 6, 1, 3, 5, 1, 2, 2, 4, 5, 5, 6, 6, 1, 3, 5, 7, 1, 1, 1, 2, 3, 1, 1, 1, 1),  # m
+))
+
+
+def calc_cp_molar_patek(T: float, x_libr_mol: float) -> float:
+    """Molar heat capacity of the LiBr/H2O solution [J/mol/K]."""
+    T = _validate_T_patek_range(T, function_name="calc_cp_molar_patek")
+    x = _validate_x_patek_range(x_libr_mol, function_name="calc_cp_molar_patek")
+    cp_t = 76.0226
+    T_c = 647.096
+    T_t = 273.16
+
+    one_minus_T_Tc = 1.0 - T / T_c
+    T_Tt = T / T_t
+    cp_sat = cp_t * sum(alpha * one_minus_T_Tc**beta * T_Tt**gamma for alpha, beta, gamma in _CP_SAT_ABG)
+
+    Tc_term = T_c / (T - 221.0)
+    correction = sum(a * x**m * (0.4 - x) ** n * Tc_term**t for a, t, n, m in _CP_TERMS)
+
+    return (1.0 - x) * cp_sat + cp_t * correction
+
+
+def calc_h_molar_patek(T: float, x_libr_mol: float) -> float:
+    """Molar enthalpy of the LiBr/H2O solution [J/mol]."""
+    T = _validate_T_patek_range(T, function_name="calc_h_molar_patek")
     x = _validate_x_patek_range(x_libr_mol, function_name="calc_h_molar_patek")
+    T_c = 647.096
+    h_c = 37548.5
 
-    h_sat = h_c * (1.0 + sum(koef_alpha[i] * (1.0 - T / T_c) ** koef_beta[i] for i in range(4)))
+    one_minus_T_Tc = 1.0 - T / T_c
+    h_sat = h_c * (1.0 + sum(alpha * one_minus_T_Tc**beta for alpha, beta in _H_SAT_AB))
 
-    grouped: dict[int, float] = {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0, 4: 0.0, 5: 0.0}
-    for a, t, n, m in zip(koef_a, koef_t, koef_n, koef_m):
+    grouped = [0.0] * 6
+    for a, t, n, m in _H_TERMS:
         grouped[t] += a * x**m * (0.4 - x) ** n
 
-    poly = sum(grouped[t] * (T_c / (T - 221.0)) ** t for t in range(6))
+    Tc_term = T_c / (T - 221.0)
+    poly = sum(g * Tc_term**t for t, g in enumerate(grouped))
     return (1.0 - x) * h_sat + h_c * poly
-
 
 
 def calc_p_sat_patek(T: float, x_libr_mol: float) -> float:
     """Saturation pressure of the LiBr/H2O solution [Pa]."""
     T = _validate_T_patek_range(T, function_name="calc_p_sat_patek")
+    x = _validate_x_patek_range(x_libr_mol, function_name="calc_p_sat_patek")
     T_c = 647.096
     p_c = 22.064e6
 
-    koef_a = [-2.41303e2, 1.91750e7, -1.75521e8, 3.25430e7, 3.92571e2, -2.12626e3, 1.85127e8, 1.91216e3]
-    koef_t = [0, 0, 0, 0, 1, 1, 1, 1]
-    koef_n = [0, 5, 6, 3, 0, 2, 6, 0]
-    koef_m = [3, 4, 4, 8, 1, 1, 4, 6]
+    T_Tc = T / T_c
+    theta = T - sum(a * x**m * (0.4 - x) ** n * T_Tc**t for a, t, n, m in _P_TERMS)
 
-    koef_beta = [1.0, 1.5, 3.0, 3.5, 4.0, 7.5]
-    koef_alpha = [-7.85951783, 1.84408259, -11.7866497, 22.6807411, -15.9618719, 1.80122502]
-
-    x = _validate_x_patek_range(x_libr_mol, function_name="calc_p_sat_patek")
-
-    theta = T - sum(
-        a * x**m * (0.4 - x) ** n * (T / T_c) ** t
-        for a, t, n, m in zip(koef_a, koef_t, koef_n, koef_m)
-    )
-    exponent = sum(koef_alpha[i] * (1.0 - theta / T_c) ** koef_beta[i] for i in range(6))
+    one_minus_theta_Tc = 1.0 - theta / T_c
+    exponent = sum(alpha * one_minus_theta_Tc**beta for alpha, beta in _P_AB)
     return p_c * math.exp((T_c / theta) * exponent)
-
 
 
 def calc_rho_molar_patek(T: float, x_libr_mol: float) -> float:
     """Molar density of the LiBr/H2O solution [mol/m^3]."""
     T = _validate_T_patek_range(T, function_name="calc_rho_molar_patek")
+    x = _validate_x_patek_range(x_libr_mol, function_name="calc_rho_molar_patek")
     T_c = 647.096
     rho_c = 17.873
 
-    koef_a = [1.746, 4.709]
-    koef_t = [0, 6]
-    koef_m = [1, 1]
+    one_minus_T_Tc = 1.0 - T / T_c
+    rho_sat = rho_c * (1.0 + sum(alpha * one_minus_T_Tc**beta for alpha, beta in _RHO_SAT_AB))
 
-    koef_beta = [1.0 / 3.0, 2.0 / 3.0, 5.0 / 3.0, 16.0 / 3.0, 43.0 / 3.0, 110.0 / 3.0]
-    koef_alpha = [1.99274064, 1.09965342, -0.510839303, -1.75493479, -45.5170352, -6.7469445e5]
-
-    x = _validate_x_patek_range(x_libr_mol, function_name="calc_rho_molar_patek")
-
-    rho_sat = rho_c * (1.0 + sum(koef_alpha[i] * (1.0 - T / T_c) ** koef_beta[i] for i in range(6)))
-    rho = (1.0 - x) * rho_sat + rho_c * sum(
-        koef_a[i] * x**koef_m[i] * (T / T_c) ** koef_t[i]
-        for i in range(2)
-    )
+    T_Tc = T / T_c
+    rho = (1.0 - x) * rho_sat + rho_c * sum(a * x**m * T_Tc**t for a, t, m in _RHO_TERMS)
     return rho * 1000.0
+
 
 def calc_s_molar_patek(T: float, x_libr_mol: float) -> float:
     """Molar entropy of the LiBr/H2O solution [J/mol/K]."""
     T = _validate_T_patek_range(T, function_name="calc_s_molar_patek")
     x = _validate_x_patek_range(x_libr_mol, function_name="calc_s_molar_patek")
-    T_c = 647.096              #[K]
-    s_c = 79.3933              #[J/molK]
-    T_0 = 221                  #[K]
+    T_c = 647.096              # [K]
+    s_c = 79.3933               # [J/molK]
+    T_0 = 221                   # [K]
 
-    # Table 8
-    koef_a = [  1.53091     *   10**0,
-                -4.52564    *   10**0,
-                6.98302     *   10**2,
-                -2.1666     *   10**4,
-                -1.47533    *   10**3,
-                8.47012     *   10**-2,
-                -6.59523    *   10**0,
-                -2.95331    *   10**4,
-                9.56314     *   10**-3,
-                -1.88679    *   10**-1,
-                9.31752     *   10**0,
-                5.78104     *   10**0,
-                1.38931     *   10**4,
-                -1.71762    *   10**4,
-                4.15108     *   10**2,
-                -5.55647    *   10**4,
-                -4.23409    *   10**-3,
-                3.05242     *   10**1,
-                -1.67620    *   10**0,
-                1.48283     *   10**1,
-                3.03055     *   10**-3,
-                -4.01810    *   10**-2,
-                1.49252     *   10**-1,
-                2.59240     *   10**0,
-                -1.77421    *   10**-1,
-                -6.99650    *   10**-5,
-                6.05007     *   10**-4,
-                -1.65228    *   10**-3,
-                1.22966     *   10**-3]
-    koef_t = [0,0,0,0,0,1,1,1,2,2,2,2,2,2,2,2,3,3,3,3,4,4,4,4,4,5,5,5,5]
-    koef_n = [0,1,6,6,2,0,0,4,0,0,4,0,4,5,2,5,0,4,0,1,0,2,4,7,1,0,1,2,3]
-    koef_m = [1,1,2,3,6,1,3,5,1,2,2,4,5,5,6,6,1,3,5,7,1,1,1,2,3,1,1,1,1]
-    # Table 15
-    koef_beta = [1/3,1,8/3,8]
-    koef_alpha = [  -3.34112    *   10**-1,
-                    -8.47987    *   10**-1,
-                    -9.11980    *   10**-1,
-                    -1.64046    *   10**0]
+    one_minus_T_Tc = 1.0 - T / T_c
+    s_sat = s_c * (1.0 + sum(alpha * one_minus_T_Tc**beta for alpha, beta in _S_SAT_AB))
 
-    # Calculation of s_sat
-    s_sat = s_c * (1.0 + sum(koef_alpha[i] * (1.0 - T / T_c) ** koef_beta[i] for i in range(4)))
+    grouped = [0.0] * 6
+    for a, t, n, m in _S_TERMS:
+        grouped[t] += a * x**m * (0.4 - x) ** n
 
-    # Calculation of s
-    factors = numpy.zeros((29,))
-    a = 0
-    b = 0
-    c = 0
-    d = 0
-    e = 0
-    f = 0
-    for i in range(29):
-        factors[i] =  koef_a[i]*x**koef_m[i]*(0.4-x)**koef_n[i]
-        if koef_t[i] == 0:
-            f = f + factors[i]
-        elif koef_t[i] == 1:
-            e = e + factors[i]
-        elif koef_t[i] == 2:
-            d = d + factors[i]
-        elif koef_t[i] == 3:
-            c = c + factors[i]
-        elif koef_t[i] == 4:
-            b = b + factors[i]
-        elif koef_t[i] == 5:
-            a = a + factors[i]
-    s = (1-x)*s_sat + s_c*(a*(T_c/(T-T_0))**5 + b*(T_c/(T-T_0))**4 + c*(T_c/(T-T_0))**3 + d*(T_c/(T-T_0))**2 + e*(T_c/(T-T_0))**1 + f)
-    return s
+    Tc_term = T_c / (T - T_0)
+    poly = sum(g * Tc_term**t for t, g in enumerate(grouped))
+    return (1.0 - x) * s_sat + s_c * poly
 
 # ---------------------------------------------------------------------------
 # Mass-based wrappers
@@ -330,7 +310,13 @@ def T_sat_solution_from_p_x(p_pa: float, x_libr_mol: float) -> float:
         return calc_p_sat_patek(T, x) - p_pa
 
     try:
-        sol = root_scalar(fun, bracket=[T_MIN_PAT + 1e-6, T_MAX_PAT - 1e-6], method="brentq")
+        sol = root_scalar(
+            fun,
+            bracket=[T_MIN_PAT + 1e-6, T_MAX_PAT - 1e-6],
+            method="brentq",
+            xtol=_T_SEARCH_XTOL,
+            rtol=_T_SEARCH_RTOL,
+        )
     except ValueError as exc:
         raise PropertyError(
             f"T_sat_solution_from_p_x: no saturation temperature found in the implemented Patek "
@@ -348,7 +334,13 @@ def T_from_h_x_mass(h_kjkg: float, x_libr_mol: float) -> float:
         return h_solution_mass_kjkg(T, x) - h_kjkg
 
     try:
-        sol = root_scalar(fun, bracket=[T_MIN_PAT + 1e-6, T_MAX_PAT - 1e-6], method="brentq")
+        sol = root_scalar(
+            fun,
+            bracket=[T_MIN_PAT + 1e-6, T_MAX_PAT - 1e-6],
+            method="brentq",
+            xtol=_T_SEARCH_XTOL,
+            rtol=_T_SEARCH_RTOL,
+        )
     except ValueError as exc:
         raise PropertyError(
             f"T_from_h_x_mass: no temperature found in the implemented Patek temperature range "
@@ -472,6 +464,8 @@ def _flash_valve_state(
                 f_x,
                 bracket=[x_in, x_right],
                 method="brentq",
+                xtol=_X_SEARCH_XTOL,
+                rtol=_X_SEARCH_RTOL,
             )
         except ValueError as exc:
             raise PropertyError(
@@ -489,7 +483,7 @@ def _flash_valve_state(
             m_out_sol = m_in_kg_s
             m_out_flash = 0.0
             h_out_sol = h_solution_mass_kjkg(T_K, x_out)
-            h_out_flash = CP.PropsSI("H", "T", T_K, "P", p_out_pa, "Water") / 1000.0
+            h_out_flash = _water_h_kjkg_TP(T_K, p_out_pa)
             h_out_mix = h_out_sol
 
             return {
@@ -539,7 +533,7 @@ def _flash_valve_state(
         h_out_sol = h_solution_mass_kjkg(T_K, x_out)
 
         # Pure water vapor at (T_K, p_out_pa)
-        h_out_flash = CP.PropsSI("H", "T", T_K, "P", p_out_pa, "Water") / 1000.0
+        h_out_flash = _water_h_kjkg_TP(T_K, p_out_pa)
 
         h_out_mix = (m_out_sol * h_out_sol + m_out_flash * h_out_flash) / m_in_kg_s
 
@@ -566,7 +560,7 @@ def _flash_valve_state(
         return build_state(T_lo, strict=True)
 
     # -------------------------------------------------------------------------
-    # True no-flash case, equivalent to the Modelica implementation
+    # True no-flash case
     # -------------------------------------------------------------------------
     #
     # Previously the root search started at T_lo, i.e. at the boiling
@@ -584,8 +578,6 @@ def _flash_valve_state(
     #
     #   h_solution_mass_kjkg(T_out, x_in) = h_in
     #
-    # This corresponds exactly to the Modelica branch:
-    #
     #   if Q_intern <= 0 then
     #       Q = 0;
     #       X_LiBr_out = X_LiBr_in;
@@ -597,7 +589,6 @@ def _flash_valve_state(
     #   r_lo = h_solution(T_lo, x_in) - h_in
     #
     # If r_lo > 0, h_in is too low for a saturated/flashing state.
-    # We then search for T_out below T_lo.
     # -------------------------------------------------------------------------
     if r_lo > 0.0:
 
@@ -625,6 +616,8 @@ def _flash_valve_state(
                 residual_no_flash,
                 bracket=[T_no_flash_lo, T_lo],
                 method="brentq",
+                xtol=_T_SEARCH_XTOL,
+                rtol=_T_SEARCH_RTOL,
             )
         except ValueError as exc:
             raise PropertyError(
@@ -655,6 +648,8 @@ def _flash_valve_state(
             residual,
             bracket=[T_lo, T_hi],
             method="brentq",
+            xtol=_T_SEARCH_XTOL,
+            rtol=_T_SEARCH_RTOL,
         )
     except ValueError as exc:
         raise PropertyError(
@@ -671,7 +666,7 @@ def flash_valve_state_2_to_1(
     m2_kg_s: float,
     x2_libr_mol: float,
     ) -> dict:
-    """Isenthalpic flash throttle 2 -> 1 for LiBr/H2O.
+    """Isenthalpic flash throttle 2 -> 1 for LiBr/H2O - Absorptions Heat Transformer.
 
     See _flash_valve_state() for the model assumptions and energy basis.
 
@@ -708,7 +703,7 @@ def flash_valve_state_5_to_6(
     m5_kg_s: float,
     x5_libr_mol: float,
     ) -> dict:
-    """Isenthalpic flash throttle 5 -> 6 for LiBr/H2O.
+    """Isenthalpic flash throttle 5 -> 6 for LiBr/H2O - Absorption Chiller.
 
     See _flash_valve_state() for the model assumptions and energy basis.
 
