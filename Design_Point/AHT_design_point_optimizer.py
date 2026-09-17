@@ -75,6 +75,27 @@ def _clip_to_bounds(z: np.ndarray, inputs: AHTInputs) -> np.ndarray:
     return np.clip(z, lower + eps, upper - eps)
 
 
+def _routing_temperature_kwargs(
+    routing_mode: str, T_13_C: Optional[float], T_15_C: Optional[float]
+) -> Dict[str, Optional[float]]:
+    """T_13_C/T_15_C kwargs matching AHTInputs' requirements for
+    routing_mode: for the series modes, the internally-derived side
+    (T15=T14 or T13=T16) must be passed as None, not as a real value.
+
+    NOTE for serial routing: T14_spec_C/T16_spec_C are set independently
+    in DesignPointConfig/PartLoadScenario -- you're responsible for making
+    them consistent with the chaining (series_desorber_to_evaporator:
+    T16_spec_C < T14_spec_C, since T15=T14; series_evaporator_to_desorber:
+    T14_spec_C < T16_spec_C, since T13=T16), analogous to
+    AHT_feasibility_sweep.py's _build_inputs().
+    """
+    if routing_mode == "series_desorber_to_evaporator":
+        return dict(T_13_C=T_13_C, T_15_C=None)
+    if routing_mode == "series_evaporator_to_desorber":
+        return dict(T_13_C=None, T_15_C=T_15_C)
+    return dict(T_13_C=T_13_C, T_15_C=T_15_C)
+
+
 # ---------------------------------------------------------------------------
 # Configuration -- ADJUST HERE
 # ---------------------------------------------------------------------------
@@ -98,6 +119,10 @@ class DesignPointConfig:
     # Design useful-heat capacity [kW] (at the absorber, NOT the evaporator!)
     Qabs_spec_kW: float = 500.0
 
+    # "parallel", "series_desorber_to_evaporator" (T15=T14 internally --
+    # T_15_C above is then ignored), or "series_evaporator_to_desorber"
+    # (T13=T16 internally -- T_13_C above is then ignored). See
+    # _routing_temperature_kwargs().
     desorber_evaporator_routing_mode: str = "parallel"
     cp_w_kJkgK: float = 4.18
     desorber_vapor_superheat_K: float = 0.0
@@ -349,8 +374,9 @@ def build_aht_inputs(
     dT_shex, dT_des, dT_cond, dT_evap, dT_abs = theta
     kwargs = dict(
         T_11_C=config.T_11_C,
-        T_13_C=config.T_13_C,
-        T_15_C=config.T_15_C,
+        **_routing_temperature_kwargs(
+            config.desorber_evaporator_routing_mode, config.T_13_C, config.T_15_C
+        ),
         T_17_C=config.T_17_C,
         dT_min_shex=float(dT_shex),
         dT_min_des=float(dT_des),
@@ -841,8 +867,9 @@ def build_ua_inputs(
     """
     return UAInputs(
         T_11_C=scenario.T_11_C,
-        T_13_C=scenario.T_13_C,
-        T_15_C=scenario.T_15_C,
+        **_routing_temperature_kwargs(
+            config.desorber_evaporator_routing_mode, scenario.T_13_C, scenario.T_15_C
+        ),
         T_17_C=scenario.T_17_C,
         UA_shex=design_ua["UA_shex"],
         UA_des=design_ua["UA_des"],

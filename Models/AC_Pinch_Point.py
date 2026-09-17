@@ -305,7 +305,12 @@ class ACInputs:
                 raise ValueError(
                     "For absorber_spec_mode='T14', m13_spec must not be set."
                 )
-            if self.T14_spec_C <= self.T_13_C:
+            effective_T13_C = (
+                self.T16_spec_C
+                if self.uses_serial_condenser_to_absorber_routing
+                else self.T_13_C
+            )
+            if effective_T13_C is not None and self.T14_spec_C <= effective_T13_C:
                 raise ValueError(
                     "For absorber_spec_mode='T14', T14_spec_C > T_13_C must hold."
                 )
@@ -328,7 +333,12 @@ class ACInputs:
                 raise ValueError(
                     "For condenser_spec_mode='T16', m15_spec must not be set."
                 )
-            if self.T16_spec_C <= self.T_15_C:
+            effective_T15_C = (
+                self.T14_spec_C
+                if self.uses_serial_absorber_to_condenser_routing
+                else self.T_15_C
+            )
+            if effective_T15_C is not None and self.T16_spec_C <= effective_T15_C:
                 raise ValueError(
                     "For condenser_spec_mode='T16', T16_spec_C > T_15_C must hold."
                 )

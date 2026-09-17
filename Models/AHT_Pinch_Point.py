@@ -87,6 +87,14 @@ except ImportError as exc:  # pragma: no cover
 
 import Thermodynamic_Properties.libr_props as lp
 
+# Cached low-level state object for repeated pure-water property lookups.
+# PropsSI() re-resolves the fluid backend from its name string on every
+# call; reusing one AbstractState avoids that and is ~8x faster for
+# repeated calls (see the water_* wrappers below).
+# Not thread-safe (fine here: this module is used single-threaded per
+# process; multiprocessing workers each get their own copy on fork/spawn).
+_WATER_STATE = CP.AbstractState("HEOS", "Water")
+
 PRIMARY_VARIABLE_NAMES = ["T8", "T10", "x3", "x6", "x20", "T2", "T4"]
 RESIDUAL_NAMES = [
     "R1_SHEX_energy",
@@ -346,7 +354,12 @@ class AHTInputs:
                 raise ValueError(
                     "For desorber_spec_mode='T14', m13_spec must not be set."
                 )
-            if self.T14_spec_C >= self.T_13_C:
+            effective_T13_C = (
+                self.T16_spec_C
+                if self.uses_serial_evaporator_to_desorber_routing
+                else self.T_13_C
+            )
+            if effective_T13_C is not None and self.T14_spec_C >= effective_T13_C:
                 raise ValueError(
                     "For desorber_spec_mode='T14', T14_spec_C < T_13_C must hold."
                 )
@@ -369,7 +382,12 @@ class AHTInputs:
                 raise ValueError(
                     "For evaporator_spec_mode='T16', m15_spec must not be set."
                 )
-            if self.T16_spec_C >= self.T_15_C:
+            effective_T15_C = (
+                self.T14_spec_C
+                if self.uses_serial_desorber_to_evaporator_routing
+                else self.T_15_C
+            )
+            if effective_T15_C is not None and self.T16_spec_C >= effective_T15_C:
                 raise ValueError(
                     "For evaporator_spec_mode='T16', T16_spec_C < T_15_C must hold."
                 )
@@ -545,34 +563,42 @@ class ModelEvaluationError(RuntimeError):
 # ---------------------------------------------------------------------------
 
 def water_h_kjkg_PT(P_pa: float, T_K: float) -> float:
-    return CP.PropsSI("H", "P", P_pa, "T", T_K, "Water") / 1000.0
+    _WATER_STATE.update(CP.PT_INPUTS, P_pa, T_K)
+    return _WATER_STATE.hmass() / 1000.0
 
 
 def water_s_kjkgK_PT(P_pa: float, T_K: float) -> float:
-    return CP.PropsSI("S", "P", P_pa, "T", T_K, "Water") / 1000.0
+    _WATER_STATE.update(CP.PT_INPUTS, P_pa, T_K)
+    return _WATER_STATE.smass() / 1000.0
 
 
 def water_h_kjkg_PQ(P_pa: float, Q: float) -> float:
-    return CP.PropsSI("H", "P", P_pa, "Q", Q, "Water") / 1000.0
+    _WATER_STATE.update(CP.PQ_INPUTS, P_pa, Q)
+    return _WATER_STATE.hmass() / 1000.0
 
 
 def water_s_kjkgK_PQ(P_pa: float, Q: float) -> float:
-    return CP.PropsSI("S", "P", P_pa, "Q", Q, "Water") / 1000.0
+    _WATER_STATE.update(CP.PQ_INPUTS, P_pa, Q)
+    return _WATER_STATE.smass() / 1000.0
 
 def water_T_K_PH(P_pa: float, h_kjkg: float) -> float:
-    return CP.PropsSI("T", "P", P_pa, "H", h_kjkg * 1000.0, "Water")
+    _WATER_STATE.update(CP.HmassP_INPUTS, h_kjkg * 1000.0, P_pa)
+    return _WATER_STATE.T()
 
 
 def water_p_sat_from_T(T_K: float, Q: float) -> float:
-    return CP.PropsSI("P", "T", T_K, "Q", Q, "Water")
+    _WATER_STATE.update(CP.QT_INPUTS, Q, T_K)
+    return _WATER_STATE.p()
 
 
 def water_T_sat_from_p(P_pa: float, Q: float) -> float:
-    return CP.PropsSI("T", "P", P_pa, "Q", Q, "Water")
+    _WATER_STATE.update(CP.PQ_INPUTS, P_pa, Q)
+    return _WATER_STATE.T()
 
 
 def water_rho_kgm3_PQ(P_pa: float, Q: float) -> float:
-    return CP.PropsSI("D", "P", P_pa, "Q", Q, "Water")
+    _WATER_STATE.update(CP.PQ_INPUTS, P_pa, Q)
+    return _WATER_STATE.rhomass()
 
 
 # ---------------------------------------------------------------------------

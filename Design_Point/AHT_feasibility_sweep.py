@@ -87,18 +87,18 @@ class FeasibilitySweepConfig:
     # --- Operating-point boundary conditions -------------------------------
     T_11_C: float = 70.0     # useful-heat sink, cold inlet (only used by
                               # sweep_feasibility())
-    T_17_C: float = 20.0     # 15.0  reject cooling, cold inlet
+    T_17_C: float = 15.0     # 15.0  reject cooling, cold inlet
     Qabs_spec_kW: float = 500.0
 
     # --- Minimum-lift requirement (T11 = T_waste + min_lift_offset_C) ------
     min_lift_offset_C: float = 2.0
 
     # --- Pinch values (design assumption, not an optimization target) ------
-    dT_min_shex: float = 5.0    # 3.0
-    dT_min_des: float = 5.0     # 3.0
-    dT_min_cond: float = 5.0    # 3.0
-    dT_min_evap: float = 5.0    # 3.0
-    dT_min_abs: float = 5.0     # 3.0
+    dT_min_shex: float = 3.0    # 3.0
+    dT_min_des: float = 3.0     # 3.0
+    dT_min_cond: float = 3.0    # 3.0
+    dT_min_evap: float = 3.0    # 3.0
+    dT_min_abs: float = 3.0     # 3.0
 
     # --- External approach values (design assumption) -----------------------
     dT_approach_des_C: float = 4.0      # 4.0
@@ -106,6 +106,8 @@ class FeasibilitySweepConfig:
     dT_approach_cond_C: float = 3.0     # 3.0
 
     desorber_evaporator_routing_mode: str = "parallel"
+    # desorber_evaporator_routing_mode: str = "series_desorber_to_evaporator"
+    # desorber_evaporator_routing_mode: str = "series_evaporator_to_desorber"
     cp_w_kJkgK: float = 4.18
     desorber_vapor_superheat_K: float = 0.0
 
@@ -131,13 +133,13 @@ T_WASTE_START_C = 85.0   # highest examined waste-heat temperature [°C]
 T_WASTE_END_C = 40.0     # lowest DESIRED waste-heat temperature [°C]
 T_WASTE_STEP_C = 5.0     # grid spacing [K]
 
-plot_name = "feasibility_sweep_10_PP_5"
+plot_name = "feasibility_sweep_15_ref_PP3_par"
 
-ENABLE_DUEHRING_MULTI_PLOT = True
-duehring_plot_name = "duehring_multi_process_10_PP_5"
+ENABLE_DUEHRING_MULTI_PLOT = False
+duehring_plot_name = "duehring_multi_process_15_ref_PP3_des"
 
-ENABLE_QT_MULTI_PDF = True
-qt_pdf_name = "qt_multi_process_10_PP_5"
+ENABLE_QT_MULTI_PDF = False
+qt_pdf_name = "qt_multi_process_15_ref_PP3_des"
 
 MULTI_PLOT_EVERY_NTH = 2
 
@@ -165,10 +167,28 @@ def _build_inputs(
     """T11_C overrides config.T_11_C for a single call -- used by the
     relative-lift functions, where T11 is derived per point from T_waste_C
     instead of being fixed."""
+    # External stream temperatures: for "parallel", desorber and evaporator
+    # each see their own fresh T_waste_C stream. For the series modes, the
+    # SAME external stream passes through both in sequence, so the second
+    # component's outlet is chained off the first component's outlet
+    # (T_waste_C - both approaches), not off T_waste_C again.
+    routing_mode = config.desorber_evaporator_routing_mode
+    if routing_mode == "series_desorber_to_evaporator":
+        routing_kwargs = dict(T_13_C=T_waste_C, T_15_C=None)
+        T14_spec_C = T_waste_C - config.dT_approach_des_C
+        T16_spec_C = T14_spec_C - config.dT_approach_evap_C
+    elif routing_mode == "series_evaporator_to_desorber":
+        routing_kwargs = dict(T_13_C=None, T_15_C=T_waste_C)
+        T16_spec_C = T_waste_C - config.dT_approach_evap_C
+        T14_spec_C = T16_spec_C - config.dT_approach_des_C
+    else:
+        routing_kwargs = dict(T_13_C=T_waste_C, T_15_C=T_waste_C)
+        T14_spec_C = T_waste_C - config.dT_approach_des_C
+        T16_spec_C = T_waste_C - config.dT_approach_evap_C
+
     kwargs = dict(
         T_11_C=T11_C if T11_C is not None else config.T_11_C,
-        T_13_C=T_waste_C,
-        T_15_C=T_waste_C,
+        **routing_kwargs,
         T_17_C=config.T_17_C,
         dT_min_shex=config.dT_min_shex,
         dT_min_des=config.dT_min_des,
@@ -181,9 +201,9 @@ def _build_inputs(
         absorber_spec_mode="T12",
         T12_spec_C=T12_spec_C,
         desorber_spec_mode="T14",
-        T14_spec_C=T_waste_C - config.dT_approach_des_C,
+        T14_spec_C=T14_spec_C,
         evaporator_spec_mode="T16",
-        T16_spec_C=T_waste_C - config.dT_approach_evap_C,
+        T16_spec_C=T16_spec_C,
         condenser_spec_mode="T18",
         T18_spec_C=config.T_17_C + config.dT_approach_cond_C,
         cp_w_kJkgK=config.cp_w_kJkgK,

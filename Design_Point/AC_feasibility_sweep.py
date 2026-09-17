@@ -128,7 +128,9 @@ class FeasibilitySweepConfig:
     dT_approach_cond_C: float = 3.0 # 7.0
     dT_approach_evap_C: float = 4.0 # 6.0 if too small, T10 can go below 0 °C (hard evaporator model limit)
 
-    absorber_condenser_routing_mode: str = "parallel"
+    # absorber_condenser_routing_mode: str = "parallel"
+    absorber_condenser_routing_mode: str = "series_absorber_to_condenser"
+    # absorber_condenser_routing_mode: str = "series_condenser_to_absorber"
     cp_w_kJkgK: float = 4.18
     desorber_vapor_superheat_K: float = 0.0
 
@@ -183,10 +185,30 @@ class FeasibilityPoint:
 def _build_inputs(
     T_reject_C: float, T11_C: float, config: FeasibilitySweepConfig, *, fast: bool = True,
 ) -> ACInputs:
+    # External stream temperatures: for "parallel", absorber and condenser
+    # each see their own fresh T_reject_C stream. For the series modes, the
+    # SAME external stream passes through both in sequence (both heat the
+    # reject-cooling stream, T14/T16 > T13/T15), so the second component's
+    # outlet is chained off the first component's outlet (T_reject_C + both
+    # approaches), not off T_reject_C again -- analogous to
+    # AHT_feasibility_sweep.py's _build_inputs().
+    routing_mode = config.absorber_condenser_routing_mode
+    if routing_mode == "series_absorber_to_condenser":
+        routing_kwargs = dict(T_13_C=T_reject_C, T_15_C=None)
+        T14_spec_C = T_reject_C + config.dT_approach_abs_C
+        T16_spec_C = T14_spec_C + config.dT_approach_cond_C
+    elif routing_mode == "series_condenser_to_absorber":
+        routing_kwargs = dict(T_13_C=None, T_15_C=T_reject_C)
+        T16_spec_C = T_reject_C + config.dT_approach_cond_C
+        T14_spec_C = T16_spec_C + config.dT_approach_abs_C
+    else:
+        routing_kwargs = dict(T_13_C=T_reject_C, T_15_C=T_reject_C)
+        T14_spec_C = T_reject_C + config.dT_approach_abs_C
+        T16_spec_C = T_reject_C + config.dT_approach_cond_C
+
     kwargs = dict(
         T_11_C=T11_C,
-        T_13_C=T_reject_C,
-        T_15_C=T_reject_C,
+        **routing_kwargs,
         T_17_C=config.T18_spec_C + config.dT_approach_evap_C,
         dT_min_shex=config.dT_min_shex,
         dT_min_des=config.dT_min_des,
@@ -199,9 +221,9 @@ def _build_inputs(
         desorber_spec_mode="T12",
         T12_spec_C=T11_C - config.dT_approach_des_C,
         absorber_spec_mode="T14",
-        T14_spec_C=T_reject_C + config.dT_approach_abs_C,
+        T14_spec_C=T14_spec_C,
         condenser_spec_mode="T16",
-        T16_spec_C=T_reject_C + config.dT_approach_cond_C,
+        T16_spec_C=T16_spec_C,
         evaporator_spec_mode="T18",
         T18_spec_C=config.T18_spec_C,
         cp_w_kJkgK=config.cp_w_kJkgK,
