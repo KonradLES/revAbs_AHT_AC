@@ -1,5 +1,6 @@
 """Four-way comparison: AHT / compression HP configurations for lifting
-data-center waste heat into a district-heating (DH) network.
+a FIXED amount of data-center waste heat into a district-heating (DH)
+network.
 
 Configurations compared
 ------------------------
@@ -8,13 +9,19 @@ Configurations compared
     3. DC -> HP  -> DH         (HP alone)
     4. DC -> HP  -> AHT -> DH  (HP first, AHT tops up the remaining lift)
 
-All four boundary streams are fixed, T-mode (both inlet AND outlet given,
-mass flow computed by whichever model owns that stream):
-    - DC waste heat   : T_DC_in_C -> T_DC_out_C = T_DC_in_C - dT_DC_C
+Fixed boundary conditions, T-mode (both inlet AND outlet given, mass flow
+computed by whichever model owns that stream):
+    - DC waste heat   : T_waste_heat_in_C -> T_DC_out_C = T_waste_heat_in_C - dT_waste_heat_C,
+      at a FIXED thermal power Q_DC_kW -- this is the scarce input
+      resource, unlike the earlier version of this script where the DH-
+      side delivered duty was fixed instead. How much useful heat each
+      configuration can actually deliver to the DH network is now an
+      OUTPUT that differs per configuration (see Q_delivered_kW below).
     - AHT's own reject cooling (independent utility, used in every
       configuration that includes an AHT, regardless of cascade position):
       T_reject_in_C -> T_reject_out_C = T_reject_in_C + dT_reject_C
-    - DH network      : T_DH_return_C = T_DH_supply_C - dT_DH_C -> T_DH_supply_C
+    - DH network      : T_DH_return_C = T_demand_supply_C - dT_demand_C -> T_demand_supply_C
+      (both temperature levels fixed; delivered POWER floats)
 
 Configs 2 and 3 (single machine) are each a single, fully-determined design
 point -- no free variable. Solve once; if it doesn't converge or fails a
@@ -26,7 +33,33 @@ Configs 1 and 4 (cascades) have exactly one free variable: the handover
 second machine's raw material -- e.g. in config 1, the AHT absorber's own
 external loop (T11 -> T12) is directly the HP's evaporator source loop.
 This script sweeps T_mid and, for each value, checks whether the split is
-achievable and what it costs in electricity.
+achievable and how much useful heat it delivers, at what electricity cost.
+
+Fixing Q_DC instead of Q_delivered: which machine gets solved first
+------------------------------------------------------------------------
+Because the data-center side is now the fixed end of the chain, whichever
+machine is fed BY THE DATA CENTER DIRECTLY is fully pinned (all its
+external streams are either DC-fixed or free-mid) and gets solved FIRST;
+its own energy balance then tells you exactly how much duty it hands
+into the captive loop, which becomes the OTHER machine's scale spec, and
+that second machine's own output is what finally reaches the DH network
+(Q_delivered_kW). This is the mirror image of the previous version of
+this script, where the DH-fixed machine was solved first instead.
+
+Two new scale-fixing mechanisms make this possible:
+    - AHT: `cycle_scale_spec_mode="Qdes_eva"` with `Qdes_eva_spec_kW`
+      (= Q_des + Q_evap) fixes the waste-heat INPUT directly -- added to
+      Models/AHT_Pinch_Point.py for exactly this purpose.
+    - HP: `HeatPumpInputs` only supports fixing `Q_cond` or
+      `m_refrigerant` directly, not `Q_evap`. But for FIXED external
+      temperatures (T-mode throughout), COP = Q_cond/P_comp is scale-
+      invariant (eta_s is derived once, upfront, from the pinch-fixed
+      pressure ratio via _estimate_pr()/_eta_s_from_pr(), independent of
+      duty) -- so Q_evap = Q_cond*(COP-1)/COP holds for ANY Q_cond at
+      those temperatures. `_solve_hp_for_Q_evap()` exploits this: one
+      reference solve gives COP, then a single corrective second solve
+      hits the requested Q_evap exactly (not approximately) -- no real
+      iteration needed, since COP does not change with scale.
 
 Simplified captive-loop coupling (by design, not an oversight)
 ------------------------------------------------------------------
@@ -36,27 +69,15 @@ physically shared loop -- same water, same mass flow, at both ends. A
 fully rigorous treatment would iterate that loop's mass flow and both of
 its temperatures until the two sub-models agree (a "tear stream").
 
-This script does NOT do that. Instead:
-    - the loop's temperature GLIDE (dT_mid_C) is a fixed assumption, same
-      as every other external stream here
-    - the two machines are solved in CAUSAL order: whichever one sits
-      LAST in the chain (i.e. is fully pinned by the fixed DH boundary
-      conditions) is solved FIRST, and its own energy balance tells you
-      exactly how much duty (kW) the upstream machine needs to deliver
-      into the shared loop -- that duty (not a matched mass flow) is
-      passed forward as the upstream machine's own scale spec
-      (Qabs_spec_kW for the AHT, Q_cond_kW for the HP)
-
-This sidesteps the need for an iterative solve while still being duty-
-consistent at the interface (the whole point of a cascade -- how much
-heat moves and at what temperature -- is preserved). What it does NOT
-guarantee is that the two machines' independently-computed mass flows for
-that shared loop numerically agree (the AHT model uses a constant cp_w
-approximation for external streams throughout this repo; the HP model
-uses TESPy's real water properties) -- a genuine but, for this first-pass
-targeting exercise, secondary concern. If you need the rigorous version
-later, this is the one part of the model that would need to become an
-iterative (tear-stream) solve instead of two straight-line calls.
+This script does NOT do that. Instead, the loop's temperature GLIDE
+(dT_mid_C) is a fixed assumption, same as every other external stream
+here, and the duty (not a matched mass flow) handed from the first-solved
+machine is passed forward as the second machine's own scale spec. What
+this does NOT guarantee is that the two machines' independently-computed
+mass flows for that shared loop numerically agree (the AHT model uses a
+constant cp_w approximation for external streams throughout this repo;
+the HP model uses TESPy's real water properties) -- a genuine but, for
+this first-pass targeting exercise, secondary concern.
 
 Standalone usage
 -----------------
@@ -91,7 +112,7 @@ RESIDUAL_TOL = 1.0e-6
 
 @dataclass
 class ScenarioConfig:
-    T_waste_heat_in_C: float = 65.0
+    T_waste_heat_in_C: float = 60.0
     dT_waste_heat_C: float = 5.0
 
     T_demand_supply_C: float = 100.0
@@ -100,12 +121,16 @@ class ScenarioConfig:
     T_reject_in_C: float = 15.0
     dT_reject_C: float = 5.0
 
-    Q_total_kW: float = 500.0
+    # Fixed data-center waste-heat power available (the scarce input
+    # resource -- see module docstring). How much of it turns into
+    # useful DH heat (Q_delivered_kW) is now an OUTPUT that differs per
+    # configuration.
+    Q_DC_kW: float = 500.0
     cp_w_kJkgK: float = 4.18
 
     dT_mid_C: float = 5.0
 
-    # AHT pinches 
+    # AHT pinches
     dT_min_shex: float = 5.0
     dT_min_des: float = 5.0
     dT_min_cond: float = 5.0
@@ -148,10 +173,10 @@ class ScenarioConfig:
         return self.T_reject_in_C + self.dT_reject_C
 
 
-T_MID_MARGIN_C = 2.0   # keep T_mid a bit clear of T_DC_in and T_DH_supply
+T_MID_MARGIN_C = 2.0   # keep T_mid a bit clear of T_waste_heat_in_C and T_demand_supply_C
 T_MID_STEP_C = 2.0
 
-plot_name = "Coupling_absorption_compression/Plots/aht_hp_configurations"
+plot_name = "Coupling_absorption_compression/Plots/aht_hp_configurations_DC55"
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +199,9 @@ def _aht_duehring_T12_max(T13_C: float, T15_C: float, T17_C: float, config: Scen
     achievable absorber outlet T12 for desorber/evaporator inlet
     T13=T15 and condenser (reject-cooling) inlet T17 -- a pure closed-form
     calculation, no solver involved (see
-    Design_Point/AHT_duehring_screening.py). Independent of T11.
+    Design_Point/AHT_duehring_screening.py). Independent of T11 and of
+    the cycle's scale (Qdes_eva/Qabs) -- the ceiling is a function of
+    temperatures only.
 
     Used as a cheap pre-filter: if even this optimistic ceiling can't
     reach the required T12, the real (pinch) model, which is strictly
@@ -193,18 +220,31 @@ def _aht_duehring_T12_max(T13_C: float, T15_C: float, T17_C: float, config: Scen
 
 def _build_aht_inputs(
     *, T11_C: float, T12_C: float, T_ext_hot_C: float, T_ext_cold_C: float,
-    T17_C: float, T18_C: float, Qabs_kW: float, config: ScenarioConfig,
+    T17_C: float, T18_C: float, config: ScenarioConfig,
+    Qdes_eva_kW: Optional[float] = None, Qabs_kW: Optional[float] = None,
     fast: bool = False,
 ) -> AHTInputs:
     """T11/T12 fix the absorber (useful-heat output). T_ext_hot/T_ext_cold
     fix BOTH desorber and evaporator (parallel routing -- the same
     external stream feeds both at the same temperature level). T17/T18
-    fix the condenser (AHT's own reject-cooling utility). Qabs_kW is the
-    overall plant-size spec.
+    fix the condenser (AHT's own reject-cooling utility).
+
+    Exactly one of Qdes_eva_kW (waste-heat INPUT fixed, Q_abs floats --
+    used throughout this script, since DC input is now the fixed
+    quantity) or Qabs_kW (useful-heat OUTPUT fixed, kept for
+    completeness/generality) must be given as the overall plant-size spec.
 
     fast=True uses relaxed solver_tol/max_nfev (T_mid sweeps, many points,
     some expected to be infeasible); fast=False uses the AHTInputs
     defaults (the single-point solve_aht_alone() call)."""
+    if (Qdes_eva_kW is None) == (Qabs_kW is None):
+        raise ValueError("Exactly one of Qdes_eva_kW or Qabs_kW must be given.")
+
+    if Qdes_eva_kW is not None:
+        scale_kwargs = dict(cycle_scale_spec_mode="Qdes_eva", Qdes_eva_spec_kW=Qdes_eva_kW)
+    else:
+        scale_kwargs = dict(cycle_scale_spec_mode="Qabs", Qabs_spec_kW=Qabs_kW)
+
     kwargs = dict(
         T_11_C=T11_C,
         T_13_C=T_ext_hot_C,
@@ -216,8 +256,6 @@ def _build_aht_inputs(
         dT_min_evap=config.dT_min_evap,
         dT_min_abs=config.dT_min_abs,
         desorber_evaporator_routing_mode="parallel",
-        cycle_scale_spec_mode="Qabs",
-        Qabs_spec_kW=Qabs_kW,
         absorber_spec_mode="T12",
         T12_spec_C=T12_C,
         desorber_spec_mode="T14",
@@ -227,6 +265,7 @@ def _build_aht_inputs(
         condenser_spec_mode="T18",
         T18_spec_C=T18_C,
         cp_w_kJkgK=config.cp_w_kJkgK,
+        **scale_kwargs,
     )
     if fast:
         kwargs["solver_tol"] = config.probe_solver_tol
@@ -453,6 +492,43 @@ def _solve_hp(
     return result, None
 
 
+def _solve_hp_for_Q_evap(
+    model: HeatPumpModel, *, T_source_in_C: float, T_source_out_C: float,
+    T_sink_in_C: float, T_sink_out_C: float, Q_evap_target_kW: float,
+    config: ScenarioConfig, max_passes: int = 2,
+):
+    """Finds the Q_cond_kW that makes this HP's evaporator duty equal
+    Q_evap_target_kW, for FIXED T-mode source/sink glides (see module
+    docstring "Two new scale-fixing mechanisms"). Not an approximation:
+    COP is exactly scale-invariant for fixed external temperatures here
+    (eta_s comes from the pinch-fixed pressure ratio via
+    _estimate_pr()/_eta_s_from_pr(), independent of duty), so
+    Q_evap = Q_cond*(COP-1)/COP holds for ANY Q_cond at these
+    temperatures -- one reference solve gives COP, and the corrective
+    second solve hits the target exactly. max_passes=2 is a safety net,
+    not a real iteration (a 3rd/4th pass would only fire if COP itself
+    shifted between the two calls, which it shouldn't).
+    """
+    Q_cond_guess = Q_evap_target_kW
+    result, reason = None, "not attempted"
+    for _ in range(max_passes):
+        result, reason = _solve_hp(
+            model, T_source_in_C=T_source_in_C, T_source_out_C=T_source_out_C,
+            T_sink_in_C=T_sink_in_C, T_sink_out_C=T_sink_out_C,
+            Q_cond_kW=Q_cond_guess, config=config,
+        )
+        if result is None:
+            return None, reason
+        cop = result.kpis["COP"]
+        if cop <= 1.0:
+            return None, f"COP={cop:.3f} <= 1 -- no finite Q_cond solves for this Q_evap target"
+        Q_evap_actual = abs(result.heat_flows_kW["Q_evap"])
+        if abs(Q_evap_actual - Q_evap_target_kW) < 1.0e-3 * Q_evap_target_kW:
+            return result, None
+        Q_cond_guess = Q_evap_target_kW * cop / (cop - 1.0)
+    return result, None
+
+
 # ---------------------------------------------------------------------------
 # Configuration 2: DC -> AHT -> DH (AHT alone)
 # ---------------------------------------------------------------------------
@@ -474,7 +550,7 @@ def solve_aht_alone(config: ScenarioConfig) -> dict:
             T11_C=config.T_DH_return_C, T12_C=T12,
             T_ext_hot_C=config.T_waste_heat_in_C, T_ext_cold_C=config.T_DC_out_C,
             T17_C=config.T_reject_in_C, T18_C=config.T_reject_out_C,
-            Qabs_kW=config.Q_total_kW, config=config, fast=True,
+            Qdes_eva_kW=config.Q_DC_kW, config=config, fast=True,
         )
 
     # Single fixed point (no sweep, so no warm start to continue from) --
@@ -494,10 +570,10 @@ def solve_aht_alone(config: ScenarioConfig) -> dict:
         }
 
     P_el_kW = result.pump_work_kW["W_AHT_total"]
-    Q_DC_kW = result.heat_flows_kW["Q_des"] + result.heat_flows_kW["Q_evap"]
+    Q_delivered_kW = result.heat_flows_kW["Q_abs"]
     return {
-        "feasible": True, "P_el_kW": P_el_kW, "Q_DC_kW": Q_DC_kW,
-        "specific_power_kWel_per_kWth": P_el_kW / config.Q_total_kW,
+        "feasible": True, "P_el_kW": P_el_kW, "Q_delivered_kW": Q_delivered_kW,
+        "specific_power_kWel_per_kWth": P_el_kW / Q_delivered_kW,
         "AHT_COP": result.kpis.get("COP", float("nan")),
     }
 
@@ -510,20 +586,20 @@ def solve_hp_alone(config: ScenarioConfig) -> dict:
     model = HeatPumpModel(refrigerant=config.refrigerant)
     model.nw.iterinfo = False
 
-    result, reason = _solve_hp(
+    result, reason = _solve_hp_for_Q_evap(
         model,
         T_source_in_C=config.T_waste_heat_in_C, T_source_out_C=config.T_DC_out_C,
         T_sink_in_C=config.T_DH_return_C, T_sink_out_C=config.T_demand_supply_C,
-        Q_cond_kW=config.Q_total_kW, config=config,
+        Q_evap_target_kW=config.Q_DC_kW, config=config,
     )
     if result is None:
         return {"feasible": False, "reason": reason}
 
     P_el_kW = result.heat_flows_kW["P_compressor"] / config.eta_mech_motor
-    Q_DC_kW = abs(result.heat_flows_kW["Q_evap"])
+    Q_delivered_kW = abs(result.heat_flows_kW["Q_cond"])
     return {
-        "feasible": True, "P_el_kW": P_el_kW, "Q_DC_kW": Q_DC_kW,
-        "specific_power_kWel_per_kWth": P_el_kW / config.Q_total_kW,
+        "feasible": True, "P_el_kW": P_el_kW, "Q_delivered_kW": Q_delivered_kW,
+        "specific_power_kWel_per_kWth": P_el_kW / Q_delivered_kW,
         "HP_COP": result.kpis["COP"],
     }
 
@@ -532,27 +608,42 @@ def solve_hp_alone(config: ScenarioConfig) -> dict:
 # Configuration 1: DC -> AHT -> HP -> DH
 # ---------------------------------------------------------------------------
 #
-# The HP sits LAST -- fully pinned by the fixed DH boundary conditions --
-# so it is solved FIRST for each T_mid. Its own evaporator duty (Q_evap)
-# is exactly how much heat the AHT needs to deliver into the captive loop,
-# and is passed forward as the AHT's Qabs_spec_kW (see module docstring).
+# The AHT sits FIRST -- fully pinned by the fixed DC waste-heat input
+# (Qdes_eva_spec_kW=Q_DC_kW) -- so it is solved FIRST for each T_mid. Its
+# own delivered duty (Q_abs) is exactly how much heat the HP receives
+# into its evaporator from the captive loop, and is passed forward as the
+# HP's Q_evap target via _solve_hp_for_Q_evap(). The HP's own delivered
+# duty (Q_cond) is what finally reaches the DH network.
 
 def sweep_aht_then_hp(config: ScenarioConfig, T_mid_values_C):
     hp_model = HeatPumpModel(refrigerant=config.refrigerant)
     hp_model.nw.iterinfo = False
 
-    # T13=T15=T_DC_in_C is constant throughout this sweep, so the Duehring
-    # ceiling only needs computing once (see _aht_duehring_T12_max).
+    # T13=T15=T_waste_heat_in_C is constant throughout this sweep, so the
+    # Duehring ceiling only needs computing once (see _aht_duehring_T12_max).
     T12_max_aht = _aht_duehring_T12_max(config.T_waste_heat_in_C, config.T_waste_heat_in_C, config.T_reject_in_C, config)
 
     records = []
     aht_state = {"T": None, "x0": None}
+    found_any_feasible = False
+    past_window = False
     for T_mid_C in T_mid_values_C:
         T11_aht = T_mid_C - config.dT_mid_C
 
-        # Cheap pre-filter before either solver runs: if even the
-        # optimistic Duehring ceiling can't reach T_mid, don't bother
-        # solving the HP leg either.
+        # Once we've seen feasible points and then hit a COMPLETE
+        # anchor-search failure (nothing within the +/-20 K fan-out, not
+        # just "nearby but not exact"), the AHT's feasible window is
+        # known to be a single contiguous interval (see every other AHT
+        # sweep in this repo), so every further point in this direction
+        # is essentially guaranteed infeasible too -- skip the expensive
+        # ~40-attempt fan-out entirely instead of repeating it per point.
+        if past_window:
+            records.append({
+                "T_mid_C": T_mid_C, "feasible": False,
+                "reason": "AHT: skipped -- past the confirmed end of the feasible window",
+            })
+            continue
+
         if T12_max_aht is None or T_mid_C > T12_max_aht:
             records.append({
                 "T_mid_C": T_mid_C, "feasible": False,
@@ -561,47 +652,54 @@ def sweep_aht_then_hp(config: ScenarioConfig, T_mid_values_C):
             aht_state["T"], aht_state["x0"] = None, None
             continue
 
-        hp_result, hp_reason = _solve_hp(
-            hp_model,
-            T_source_in_C=T_mid_C, T_source_out_C=T11_aht,
-            T_sink_in_C=config.T_DH_return_C, T_sink_out_C=config.T_demand_supply_C,
-            Q_cond_kW=config.Q_total_kW, config=config,
-        )
-        if hp_result is None:
-            records.append({"T_mid_C": T_mid_C, "feasible": False, "reason": f"HP: {hp_reason}"})
-            continue
-        Q_evap_hp = hp_result.heat_flows_kW["Q_evap"]  # negative in TESPy's own sign convention
-        P_HP_el_kW = hp_result.heat_flows_kW["P_compressor"] / config.eta_mech_motor
-
         GTL_est = T_mid_C - config.T_waste_heat_in_C
         if GTL_est < config.min_GTL_K:
             records.append({"T_mid_C": T_mid_C, "feasible": False, "reason": f"AHT: GTL={GTL_est:.1f} K < min_GTL_K"})
             aht_state["T"], aht_state["x0"] = None, None
             continue
 
-        def build_fn(T, _Qabs_kW=abs(Q_evap_hp)):
+        def build_fn(T):
             return _build_aht_inputs(
                 T11_C=T - config.dT_mid_C, T12_C=T,
                 T_ext_hot_C=config.T_waste_heat_in_C, T_ext_cold_C=config.T_DC_out_C,
                 T17_C=config.T_reject_in_C, T18_C=config.T_reject_out_C,
-                Qabs_kW=_Qabs_kW, config=config, fast=True,
+                Qdes_eva_kW=config.Q_DC_kW, config=config, fast=True,
             )
 
         aht_result, aht_reason = _advance_aht_leg(build_fn, T_mid_C, aht_state)
         if aht_result is None:
             records.append({"T_mid_C": T_mid_C, "feasible": False, "reason": aht_reason})
+            if found_any_feasible:
+                # Either failure message ("no valid solution" or "...
+                # nearest feasible point is elsewhere") means the full
+                # fan-out already ran and missed the exact target -- once
+                # we've already seen feasible points, that's enough to
+                # call this "past the window" (single contiguous
+                # interval, see _advance_aht_leg's docstring).
+                past_window = True
             continue
+        found_any_feasible = True
         P_AHT_kW = aht_result.pump_work_kW["W_AHT_total"]
-        # DC feeds the AHT's desorber+evaporator directly in this config
-        # (the HP's source is the captive loop, not DC) -- see module docstring.
-        Q_DC_kW = aht_result.heat_flows_kW["Q_des"] + aht_result.heat_flows_kW["Q_evap"]
+        Q_captive_kW = aht_result.heat_flows_kW["Q_abs"]  # AHT's delivered duty into the captive loop
+
+        hp_result, hp_reason = _solve_hp_for_Q_evap(
+            hp_model,
+            T_source_in_C=T_mid_C, T_source_out_C=T11_aht,
+            T_sink_in_C=config.T_DH_return_C, T_sink_out_C=config.T_demand_supply_C,
+            Q_evap_target_kW=Q_captive_kW, config=config,
+        )
+        if hp_result is None:
+            records.append({"T_mid_C": T_mid_C, "feasible": False, "reason": f"HP: {hp_reason}"})
+            continue
+        P_HP_el_kW = hp_result.heat_flows_kW["P_compressor"] / config.eta_mech_motor
+        Q_delivered_kW = abs(hp_result.heat_flows_kW["Q_cond"])
 
         P_total_kW = P_AHT_kW + P_HP_el_kW
         records.append({
             "T_mid_C": T_mid_C, "feasible": True,
-            "Q_AHT_kW": abs(Q_evap_hp), "Q_HP_kW": config.Q_total_kW, "Q_DC_kW": Q_DC_kW,
+            "Q_delivered_kW": Q_delivered_kW,
             "P_AHT_kW": P_AHT_kW, "P_HP_el_kW": P_HP_el_kW, "P_total_kW": P_total_kW,
-            "specific_power_kWel_per_kWth": P_total_kW / config.Q_total_kW,
+            "specific_power_kWel_per_kWth": P_total_kW / Q_delivered_kW,
             "AHT_COP": aht_result.kpis.get("COP", float("nan")),
             "HP_COP": hp_result.kpis["COP"],
         })
@@ -613,10 +711,12 @@ def sweep_aht_then_hp(config: ScenarioConfig, T_mid_values_C):
 # Configuration 4: DC -> HP -> AHT -> DH
 # ---------------------------------------------------------------------------
 #
-# The AHT sits LAST here -- fully pinned by the fixed DH boundary
-# conditions -- so it is solved FIRST for each T_mid. Its own desorber +
-# evaporator duty is exactly how much heat the HP needs to deliver into
-# the captive loop, and is passed forward as the HP's Q_cond_kW.
+# The HP sits FIRST -- fully pinned by the fixed DC waste-heat input
+# (Q_evap target=Q_DC_kW via _solve_hp_for_Q_evap()) -- so it is solved
+# FIRST for each T_mid. Its own delivered duty (Q_cond) is exactly how
+# much heat the AHT receives into its desorber+evaporator from the
+# captive loop, and is passed forward as the AHT's Qdes_eva_spec_kW. The
+# AHT's own delivered duty (Q_abs) is what finally reaches the DH network.
 
 def sweep_hp_then_aht(config: ScenarioConfig, T_mid_values_C):
     hp_model = HeatPumpModel(refrigerant=config.refrigerant)
@@ -624,8 +724,25 @@ def sweep_hp_then_aht(config: ScenarioConfig, T_mid_values_C):
 
     records = []
     aht_state = {"T": None, "x0": None}
+    found_any_feasible = False
+    past_window = False
     for T_mid_C in T_mid_values_C:
         T14_aht = T_mid_C - config.dT_mid_C
+
+        # Once we've seen feasible points and then hit a COMPLETE
+        # anchor-search failure (nothing within the +/-20 K fan-out, not
+        # just "nearby but not exact"), the AHT's feasible window is
+        # known to be a single contiguous interval (see every other AHT
+        # sweep in this repo), so every further point in this direction
+        # is essentially guaranteed infeasible too -- skip both the HP
+        # solve and the expensive ~40-attempt AHT fan-out entirely,
+        # instead of repeating them per point.
+        if past_window:
+            records.append({
+                "T_mid_C": T_mid_C, "feasible": False,
+                "reason": "AHT: skipped -- past the confirmed end of the feasible window",
+            })
+            continue
 
         GTL_est = config.T_demand_supply_C - T_mid_C
         if GTL_est < config.min_GTL_K:
@@ -645,41 +762,48 @@ def sweep_hp_then_aht(config: ScenarioConfig, T_mid_values_C):
             aht_state["T"], aht_state["x0"] = None, None
             continue
 
-        def build_fn(T):
-            return _build_aht_inputs(
-                T11_C=config.T_DH_return_C, T12_C=config.T_demand_supply_C,
-                T_ext_hot_C=T, T_ext_cold_C=T - config.dT_mid_C,
-                T17_C=config.T_reject_in_C, T18_C=config.T_reject_out_C,
-                Qabs_kW=config.Q_total_kW, config=config, fast=True,
-            )
-
-        aht_result, aht_reason = _advance_aht_leg(build_fn, T_mid_C, aht_state)
-        if aht_result is None:
-            records.append({"T_mid_C": T_mid_C, "feasible": False, "reason": aht_reason})
-            continue
-        P_AHT_kW = aht_result.pump_work_kW["W_AHT_total"]
-        Q_captive_kW = aht_result.heat_flows_kW["Q_des"] + aht_result.heat_flows_kW["Q_evap"]
-
-        hp_result, hp_reason = _solve_hp(
+        hp_result, hp_reason = _solve_hp_for_Q_evap(
             hp_model,
             T_source_in_C=config.T_waste_heat_in_C, T_source_out_C=config.T_DC_out_C,
             T_sink_in_C=T14_aht, T_sink_out_C=T_mid_C,
-            Q_cond_kW=Q_captive_kW, config=config,
+            Q_evap_target_kW=config.Q_DC_kW, config=config,
         )
         if hp_result is None:
             records.append({"T_mid_C": T_mid_C, "feasible": False, "reason": f"HP: {hp_reason}"})
             continue
         P_HP_el_kW = hp_result.heat_flows_kW["P_compressor"] / config.eta_mech_motor
-        # DC feeds the HP's evaporator directly in this config (the AHT's
-        # desorber/evaporator draw from the captive loop, not DC).
-        Q_DC_kW = abs(hp_result.heat_flows_kW["Q_evap"])
+        Q_captive_kW = abs(hp_result.heat_flows_kW["Q_cond"])  # HP's delivered duty into the captive loop
+
+        def build_fn(T, _Qdes_eva_kW=Q_captive_kW):
+            return _build_aht_inputs(
+                T11_C=config.T_DH_return_C, T12_C=config.T_demand_supply_C,
+                T_ext_hot_C=T, T_ext_cold_C=T - config.dT_mid_C,
+                T17_C=config.T_reject_in_C, T18_C=config.T_reject_out_C,
+                Qdes_eva_kW=_Qdes_eva_kW, config=config, fast=True,
+            )
+
+        aht_result, aht_reason = _advance_aht_leg(build_fn, T_mid_C, aht_state)
+        if aht_result is None:
+            records.append({"T_mid_C": T_mid_C, "feasible": False, "reason": aht_reason})
+            if found_any_feasible:
+                # Either failure message ("no valid solution" or "...
+                # nearest feasible point is elsewhere") means the full
+                # fan-out already ran and missed the exact target -- once
+                # we've already seen feasible points, that's enough to
+                # call this "past the window" (single contiguous
+                # interval, see _advance_aht_leg's docstring).
+                past_window = True
+            continue
+        found_any_feasible = True
+        P_AHT_kW = aht_result.pump_work_kW["W_AHT_total"]
+        Q_delivered_kW = aht_result.heat_flows_kW["Q_abs"]
 
         P_total_kW = P_AHT_kW + P_HP_el_kW
         records.append({
             "T_mid_C": T_mid_C, "feasible": True,
-            "Q_AHT_kW": config.Q_total_kW, "Q_HP_kW": Q_captive_kW, "Q_DC_kW": Q_DC_kW,
+            "Q_delivered_kW": Q_delivered_kW,
             "P_AHT_kW": P_AHT_kW, "P_HP_el_kW": P_HP_el_kW, "P_total_kW": P_total_kW,
-            "specific_power_kWel_per_kWth": P_total_kW / config.Q_total_kW,
+            "specific_power_kWel_per_kWth": P_total_kW / Q_delivered_kW,
             "AHT_COP": aht_result.kpis.get("COP", float("nan")),
             "HP_COP": hp_result.kpis["COP"],
         })
@@ -692,14 +816,12 @@ def sweep_hp_then_aht(config: ScenarioConfig, T_mid_values_C):
 # ---------------------------------------------------------------------------
 
 def plot_comparison(
-    records_aht_hp, records_hp_aht, aht_alone: dict, hp_alone: dict,
+    records_aht_hp, records_hp_aht, aht_alone: dict, hp_alone: dict, config: ScenarioConfig,
 ):
-    """Two panels sharing the T_mid axis: electrical power demand (the
-    usual efficiency metric) and DC waste-heat draw (Q_DC_kW) -- shown
-    side by side because a configuration that looks cheapest in
-    electricity can require substantially more raw waste heat from the
-    data center for the same delivered duty (AHT's COP < 1 means heat
-    passed through it is only partially converted, not just "moved")."""
+    """Two panels sharing the T_mid axis: electrical power demand (left)
+    and delivered DH heat (right) -- with the fixed Q_DC_kW input shown
+    as a reference line on the right, so the delivered-vs-input ratio for
+    each configuration is directly visible."""
     fig, (ax_p, ax_q) = plt.subplots(1, 2, figsize=(13.5, 6.0))
 
     series = (
@@ -712,7 +834,7 @@ def plot_comparison(
             continue
         T_mid = [r["T_mid_C"] for r in feasible]
         ax_p.plot(T_mid, [r["P_total_kW"] for r in feasible], "o-", color=color, label=label)
-        ax_q.plot(T_mid, [r["Q_DC_kW"] for r in feasible], "o-", color=color, label=label)
+        ax_q.plot(T_mid, [r["Q_delivered_kW"] for r in feasible], "o-", color=color, label=label)
 
     for key, label_fmt in (
         (aht_alone, lambda r: f"DC -> AHT -> DH (COP={r['AHT_COP']:.2f})"),
@@ -722,7 +844,9 @@ def plot_comparison(
             continue
         color = "tab:orange" if key is aht_alone else "tab:red"
         ax_p.axhline(key["P_el_kW"], color=color, linestyle="--", label=label_fmt(key))
-        ax_q.axhline(key["Q_DC_kW"], color=color, linestyle="--", label=label_fmt(key))
+        ax_q.axhline(key["Q_delivered_kW"], color=color, linestyle="--", label=label_fmt(key))
+
+    ax_q.axhline(config.Q_DC_kW, color="0.4", linestyle=":", label=f"DC waste-heat input (fixed, {config.Q_DC_kW:.0f} kW)")
 
     ax_p.set_xlabel("Handover temperature T_mid [°C]")
     ax_p.set_ylabel("Electrical power demand P_el [kW]")
@@ -730,7 +854,7 @@ def plot_comparison(
     ax_p.grid(alpha=0.3)
 
     ax_q.set_xlabel("Handover temperature T_mid [°C]")
-    ax_q.set_ylabel("DC waste-heat draw Q_DC [kW]")
+    ax_q.set_ylabel("Delivered DH heat Q_delivered [kW]")
     ax_q.legend(fontsize=9)
     ax_q.grid(alpha=0.3)
 
@@ -750,15 +874,23 @@ def _print_sweep_table(name: str, records) -> None:
         if r["feasible"]:
             print(
                 f"    T_mid={r['T_mid_C']:5.1f} C  P_total={r['P_total_kW']:6.2f} kW  "
-                f"Q_DC={r['Q_DC_kW']:7.1f} kW  "
+                f"Q_delivered={r['Q_delivered_kW']:7.1f} kW  "
                 f"spec.power={r['specific_power_kWel_per_kWth']:.4f}  "
                 f"AHT_COP={r['AHT_COP']:.2f}  HP_COP={r['HP_COP']:.2f}"
             )
         else:
             print(f"    T_mid={r['T_mid_C']:5.1f} C  infeasible ({r['reason']})")
     if n_feasible:
-        best = min((r for r in records if r["feasible"]), key=lambda r: r["P_total_kW"])
-        print(f"  Best: T_mid={best['T_mid_C']:.1f} C, P_total={best['P_total_kW']:.2f} kW")
+        # Ranked by specific power (P_el per kW delivered), not absolute
+        # P_el -- Q_delivered_kW now varies across the sweep too (it's no
+        # longer the fixed quantity), so the point with the lowest
+        # absolute P_el isn't necessarily the most efficient one.
+        best = min((r for r in records if r["feasible"]), key=lambda r: r["specific_power_kWel_per_kWth"])
+        print(
+            f"  Best (lowest spec.power): T_mid={best['T_mid_C']:.1f} C, "
+            f"P_total={best['P_total_kW']:.2f} kW, Q_delivered={best['Q_delivered_kW']:.1f} kW, "
+            f"spec.power={best['specific_power_kWel_per_kWth']:.4f}"
+        )
 
 
 if __name__ == "__main__":
@@ -766,9 +898,9 @@ if __name__ == "__main__":
 
     print("=" * 70)
     print(
-        f"DC waste heat {config.T_waste_heat_in_C:.1f} -> {config.T_DC_out_C:.1f} C, "
-        f"DH network {config.T_DH_return_C:.1f} -> {config.T_demand_supply_C:.1f} C, "
-        f"Q_total={config.Q_total_kW:.0f} kW"
+        f"DC waste heat {config.T_waste_heat_in_C:.1f} -> {config.T_DC_out_C:.1f} C @ "
+        f"{config.Q_DC_kW:.0f} kW (fixed input), "
+        f"DH network {config.T_DH_return_C:.1f} -> {config.T_demand_supply_C:.1f} C"
     )
     print("=" * 70)
 
@@ -776,7 +908,7 @@ if __name__ == "__main__":
     aht_alone = solve_aht_alone(config)
     if aht_alone["feasible"]:
         print(
-            f"  FEASIBLE -- P_el={aht_alone['P_el_kW']:.2f} kW, Q_DC={aht_alone['Q_DC_kW']:.1f} kW, "
+            f"  FEASIBLE -- P_el={aht_alone['P_el_kW']:.2f} kW, Q_delivered={aht_alone['Q_delivered_kW']:.1f} kW, "
             f"spec.power={aht_alone['specific_power_kWel_per_kWth']:.4f}, "
             f"AHT COP={aht_alone['AHT_COP']:.2f}"
         )
@@ -787,7 +919,7 @@ if __name__ == "__main__":
     hp_alone = solve_hp_alone(config)
     if hp_alone["feasible"]:
         print(
-            f"  FEASIBLE -- P_el={hp_alone['P_el_kW']:.2f} kW, Q_DC={hp_alone['Q_DC_kW']:.1f} kW, "
+            f"  FEASIBLE -- P_el={hp_alone['P_el_kW']:.2f} kW, Q_delivered={hp_alone['Q_delivered_kW']:.1f} kW, "
             f"spec.power={hp_alone['specific_power_kWel_per_kWth']:.4f}, "
             f"HP COP={hp_alone['HP_COP']:.2f}"
         )
@@ -806,4 +938,4 @@ if __name__ == "__main__":
     records_hp_aht = sweep_hp_then_aht(config, T_mid_grid)
     _print_sweep_table("Configuration 4 (DC -> HP -> AHT -> DH)", records_hp_aht)
 
-    plot_comparison(records_aht_hp, records_hp_aht, aht_alone, hp_alone)
+    plot_comparison(records_aht_hp, records_hp_aht, aht_alone, hp_alone, config)
