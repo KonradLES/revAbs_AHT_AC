@@ -143,6 +143,14 @@ qt_pdf_name = "qt_multi_process_15_ref_PP3_des"
 
 MULTI_PLOT_EVERY_NTH = 2
 
+ENABLE_GAP_DECOMPOSITION_PLOT = True
+gap_plot_name = "feasibility_gap_decomposition_15_ref_PP3_par"
+
+# Overlays several full sweeps (e.g. different T17 presets) in one plot --
+# expensive (one full homotopy sweep per variant), hence opt-in.
+ENABLE_MULTI_CONFIG_COMPARISON = False
+multi_config_plot_name = "feasibility_sweep_multi_T17"
+
 
 @dataclass(frozen=True)
 class FeasibilityPoint:
@@ -154,6 +162,9 @@ class FeasibilityPoint:
     feasible: bool
     message: str
     result: Optional[AHTResult] = None
+    # Which HX pinch is closest to its dT_min at the T12_max boundary (see
+    # classify_binding_constraint()) -- "" if not computed (e.g. infeasible).
+    binding_constraint: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -373,6 +384,71 @@ def _refine_boundary(
     return result if ok else None
 
 
+# ---------------------------------------------------------------------------
+# Diagnostics: which HX pinch is binding at a given operating point
+# ---------------------------------------------------------------------------
+
+def classify_binding_constraint(result: AHTResult) -> str:
+    """Identifies which heat exchanger -- and which end/location within it --
+    is closest to its dT_min at this operating point.
+
+    Uses only result.pinch_temperatures_K and result.inputs.dT_min_* (both
+    already computed by the strict solve, see AHTResult) -- no new solve.
+    At a genuine feasibility boundary exactly one HX's margin is ~0; this is
+    the one that stopped the bisection in _expand_and_bisect(). Comparing the
+    margins directly explains WHY the achievable window is narrower than the
+    Duehring upper bound at a given waste-heat temperature (see
+    gap_to_duehring_bound()), and whether that reason shifts between HXs as
+    the external temperature levels spread.
+    """
+    pt = result.pinch_temperatures_K
+    inp = result.inputs
+
+    margins = {
+        "SHEX": pt["pinch_shex_K"] - inp.dT_min_shex,
+        "Desorber": pt["pinch_des_K"] - inp.dT_min_des,
+        "Condenser": pt["pinch_cond_K"] - inp.dT_min_cond,
+        "Evaporator": pt["pinch_evap_K"] - inp.dT_min_evap,
+        "Absorber": pt["pinch_abs_K"] - inp.dT_min_abs,
+    }
+    hx = min(margins, key=margins.get)
+
+    if hx == "SHEX":
+        location = "hot end" if pt["dT_shex_hot_end_K"] <= pt["dT_shex_cold_end_K"] else "cold end"
+    elif hx == "Desorber":
+        location = "hot end" if pt["dT_des_hot_end_K"] <= pt["dT_des_cold_end_K"] else "cold end"
+    elif hx == "Absorber":
+        location = "hot end" if pt["dT_abs_hot_end_K"] <= pt["dT_abs_cold_end_K"] else "cold end"
+    elif hx == "Condenser":
+        location = min(
+            [("inlet", pt["dT_cond_in"]), ("saturation", pt["dT_cond_sat"]), ("outlet", pt["dT_cond_out"])],
+            key=lambda kv: kv[1],
+        )[0]
+    else:  # Evaporator
+        location = min(
+            [("inlet", pt["dT_evap_in"]), ("saturation", pt["dT_evap_sat"]), ("outlet", pt["dT_evap_out"])],
+            key=lambda kv: kv[1],
+        )[0]
+
+    return f"{hx} ({location})"
+
+
+_HX_CATEGORIES = ["SHEX", "Desorber", "Condenser", "Evaporator", "Absorber", "unknown"]
+_HX_COLORS = {
+    "SHEX": "#9467BD",
+    "Desorber": "#D55E00",
+    "Condenser": "#0072B2",
+    "Evaporator": "#009E73",
+    "Absorber": "#CC79A7",
+    "unknown": "0.5",
+}
+
+
+def _hx_category(binding_constraint: str) -> str:
+    category = binding_constraint.split(" (")[0] if binding_constraint else "unknown"
+    return category if category in _HX_COLORS else "unknown"
+
+
 def find_feasible_window(
     T_waste_C: float,
     config: FeasibilitySweepConfig,
@@ -405,11 +481,13 @@ def find_feasible_window(
     T12_min, _x0_min = _expand_and_bisect(anchor_T, x0_anchor, -1, T_waste_C, config)
 
     result_max = _refine_boundary(T_waste_C, T12_max, x0_max, config)
+    chosen_result = result_max if result_max is not None else anchor_result
 
     return FeasibilityPoint(
         T_waste_C=T_waste_C, T12_min_C=T12_min, T12_max_C=T12_max,
         GTL_min_K=T12_min - T_waste_C, GTL_max_K=T12_max - T_waste_C,
-        feasible=True, message="OK", result=result_max if result_max is not None else anchor_result,
+        feasible=True, message="OK", result=chosen_result,
+        binding_constraint=classify_binding_constraint(chosen_result),
     )
 
 
@@ -572,11 +650,13 @@ def _window_at_point(
     T12_max, x0_max = _expand_and_bisect(anchor_T, x0_anchor, +1, T_waste_C, config)
     T12_min, x0_min = _expand_and_bisect(anchor_T, x0_anchor, -1, T_waste_C, config)
     result_max = _refine_boundary(T_waste_C, T12_max, x0_max, config)
+    chosen_result = result_max if result_max is not None else anchor_result
 
     point = FeasibilityPoint(
         T_waste_C=T_waste_C, T12_min_C=T12_min, T12_max_C=T12_max,
         GTL_min_K=T12_min - T_waste_C, GTL_max_K=T12_max - T_waste_C,
-        feasible=True, message="OK", result=result_max if result_max is not None else anchor_result,
+        feasible=True, message="OK", result=chosen_result,
+        binding_constraint=classify_binding_constraint(chosen_result),
     )
     return point, x0_min
 
@@ -703,19 +783,21 @@ def sweep_relative_lift_window_homotopy(
 # ---------------------------------------------------------------------------
 
 def print_sweep_table(points: Sequence[FeasibilityPoint]) -> None:
-    print("=" * 100)
+    print("=" * 120)
     print(
         f"{'T_waste[C]':>10} {'T12_min[C]':>11} {'T12_max[C]':>11} "
-        f"{'GTL_min[K]':>11} {'GTL_max[K]':>11} {'Status':>8}"
+        f"{'GTL_min[K]':>11} {'GTL_max[K]':>11} {'Status':>8}  "
+        f"{'Binding constraint @ T12_max':<28}"
     )
-    print("-" * 100)
+    print("-" * 120)
     for p in points:
         status = "OK" if p.feasible else "FAIL"
         print(
             f"{p.T_waste_C:10.2f} {p.T12_min_C:11.2f} {p.T12_max_C:11.2f} "
-            f"{p.GTL_min_K:11.2f} {p.GTL_max_K:11.2f} {status:>8}"
+            f"{p.GTL_min_K:11.2f} {p.GTL_max_K:11.2f} {status:>8}  "
+            f"{p.binding_constraint:<28}"
         )
-    print("=" * 100)
+    print("=" * 120)
 
 
 def plot_feasibility_sweep(
@@ -739,8 +821,21 @@ def plot_feasibility_sweep(
     y_max = np.array([p.GTL_max_K for p in ok_points])
 
     ax.fill_between(x, y_min, y_max, color="tab:blue", alpha=0.18, label="feasible window")
-    ax.plot(x, y_max, "o-", color="tab:blue", label="GTL_max")
-    ax.plot(x, y_min, "o--", color="tab:blue", linewidth=1.2, label="GTL_min")
+    ax.plot(x, y_max, "-", color="tab:blue", linewidth=1.2, label="GTL_max")
+    ax.plot(x, y_min, "o--", color="tab:blue", linewidth=1.2, markersize=4, label="GTL_min")
+
+    # GTL_max markers colored by the binding constraint (see
+    # classify_binding_constraint()) -- shows WHICH heat exchanger limits the
+    # window, and whether that changes along the sweep.
+    plotted_categories = set()
+    for p in ok_points:
+        category = _hx_category(p.binding_constraint)
+        label = category if category not in plotted_categories else None
+        plotted_categories.add(category)
+        ax.plot(
+            p.T_waste_C, p.GTL_max_K, "o", color=_HX_COLORS[category],
+            markersize=7, markeredgecolor="white", markeredgewidth=0.6, label=label, zorder=3,
+        )
 
     fail_points = [p for p in points if not p.feasible]
     if fail_points:
@@ -755,6 +850,167 @@ def plot_feasibility_sweep(
         yr = np.array([r.GTL_max_K for r in duehring_reference])
         okr = np.array([r.feasible for r in duehring_reference])
         ax.plot(xr[okr], yr[okr], "--", color="0.4", label="Duehring bound (optimistic)")
+
+    ax.set_xlabel("Waste-heat temperature T13 = T15 [°C]")
+    ax.set_ylabel("GTL [K]")
+    ax.grid(alpha=0.4)
+    ax.legend(fontsize=8.5)
+
+    fig.tight_layout()
+    if save_path is not None:
+        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+        print(f"Plot saved: {save_path}")
+    if show:
+        plt.show()
+
+    return fig, ax
+
+
+# ---------------------------------------------------------------------------
+# Gap decomposition: how far below the Duehring upper bound, and why
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class GapPoint:
+    T_waste_C: float
+    GTL_max_actual_K: float
+    GTL_max_duehring_K: float
+    gap_K: float
+    binding_constraint: str
+
+
+def gap_to_duehring_bound(
+    points: Sequence[FeasibilityPoint], config: FeasibilitySweepConfig,
+) -> List[GapPoint]:
+    """For each feasible point, recomputes the optimistic Duehring GTL_max at
+    the point's OWN T_waste_C (cheap, no solver -- see AHT_duehring_screening)
+    and returns the gap to the actually achievable GTL_max, tagged with the
+    binding constraint already stored on the point.
+
+    Recomputing per-point (rather than reusing a separately generated
+    duehring_reference list) avoids any T_waste misalignment from the
+    homotopy walk, which can drift slightly off the nominal grid (see
+    sweep_relative_lift_window_homotopy())."""
+    from AHT_duehring_screening import estimate_max_gtl
+
+    gaps: List[GapPoint] = []
+    for p in points:
+        if not p.feasible:
+            continue
+        duehring = estimate_max_gtl(
+            T13_C=p.T_waste_C, T15_C=p.T_waste_C, T17_C=config.T_17_C,
+            dT_min_des=config.dT_min_des, dT_min_evap=config.dT_min_evap,
+            dT_min_cond=config.dT_min_cond, dT_min_abs=config.dT_min_abs,
+        )
+        if not duehring.feasible:
+            continue
+        gaps.append(GapPoint(
+            T_waste_C=p.T_waste_C,
+            GTL_max_actual_K=p.GTL_max_K,
+            GTL_max_duehring_K=duehring.GTL_max_K,
+            gap_K=duehring.GTL_max_K - p.GTL_max_K,
+            binding_constraint=p.binding_constraint,
+        ))
+    return gaps
+
+
+def plot_gap_decomposition(
+    gaps: Sequence[GapPoint],
+    *,
+    save_path: Optional[str] = None,
+    show: bool = True,
+):
+    """Plots GTL_max_duehring - GTL_max_actual vs. waste-heat temperature,
+    colored by the binding constraint at each point (see
+    gap_to_duehring_bound()). Growing bars with a color change make visible
+    not just THAT the real window falls further behind the optimistic bound
+    as the external temperature levels spread, but WHICH heat exchanger
+    newly becomes the reason."""
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(8.5, 5.0))
+
+    x = np.array([g.T_waste_C for g in gaps])
+    y = np.array([g.gap_K for g in gaps])
+    colors = [_HX_COLORS[_hx_category(g.binding_constraint)] for g in gaps]
+
+    width = 0.6 * (abs(x[1] - x[0]) if len(x) > 1 else 1.0)
+    ax.bar(x, y, width=width, color=colors, edgecolor="white", linewidth=0.5)
+
+    plotted_categories = set()
+    for g in gaps:
+        category = _hx_category(g.binding_constraint)
+        if category in plotted_categories:
+            continue
+        plotted_categories.add(category)
+        ax.plot([], [], "s", color=_HX_COLORS[category], label=category)
+
+    ax.set_xlabel("Waste-heat temperature T13 = T15 [°C]")
+    ax.set_ylabel("Gap to Duehring upper bound, GTL_max [K]")
+    ax.grid(alpha=0.4, axis="y")
+    ax.legend(title="Binding constraint", fontsize=8.5, title_fontsize=8.5)
+
+    fig.tight_layout()
+    if save_path is not None:
+        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+        print(f"Plot saved: {save_path}")
+    if show:
+        plt.show()
+
+    return fig, ax
+
+
+# ---------------------------------------------------------------------------
+# Multi-curve comparison: several sweeps (e.g. different T17/dT_min/routing)
+# overlaid in one GTL-vs-T_waste plot
+# ---------------------------------------------------------------------------
+
+def run_sweep_variants(
+    variants: Sequence[Tuple[str, FeasibilitySweepConfig]],
+    T_waste_values_C: Sequence[float],
+) -> List[Tuple[str, List[FeasibilityPoint]]]:
+    """Runs sweep_relative_lift_window_homotopy() once per (label, config)
+    pair -- the natural way to compare several T17/dT_min/min_lift_offset/
+    routing-mode presets side by side (see plot_feasibility_sweep_multi())."""
+    curves = []
+    for label, cfg in variants:
+        print(f"\n--- Sweep variant: {label} ---")
+        curves.append((label, sweep_relative_lift_window_homotopy(T_waste_values_C, cfg)))
+    return curves
+
+
+def plot_feasibility_sweep_multi(
+    curves: Sequence[Tuple[str, Sequence[FeasibilityPoint]]],
+    *,
+    save_path: Optional[str] = None,
+    show: bool = True,
+):
+    """Overlays several feasibility sweeps in one GTL-vs-T_waste plot, one
+    color per curve (analogous to AHT_duehring_screening.plot_gtl_vs_waste_heat
+    for the optimistic bound, just for the actual pinch-feasible window).
+    Infeasible points are drawn as crosses on the zero line, same color as
+    their curve."""
+    import matplotlib.pyplot as plt
+
+    palette = ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9"]
+
+    fig, ax = plt.subplots(figsize=(8.5, 6.0))
+
+    for i, (label, points) in enumerate(curves):
+        color = palette[i % len(palette)]
+        ok_points = [p for p in points if p.feasible]
+        if ok_points:
+            x = np.array([p.T_waste_C for p in ok_points])
+            y_min = np.array([p.GTL_min_K for p in ok_points])
+            y_max = np.array([p.GTL_max_K for p in ok_points])
+            ax.fill_between(x, y_min, y_max, color=color, alpha=0.12)
+            ax.plot(x, y_max, "o-", color=color, markersize=4, label=f"{label} (GTL_max)")
+            ax.plot(x, y_min, "o--", color=color, markersize=4, linewidth=1.0, alpha=0.7)
+
+        fail_points = [p for p in points if not p.feasible]
+        if fail_points:
+            xf = np.array([p.T_waste_C for p in fail_points])
+            ax.plot(xf, np.zeros_like(xf), "x", color=color, markersize=7, markeredgewidth=1.5)
 
     ax.set_xlabel("Waste-heat temperature T13 = T15 [°C]")
     ax.set_ylabel("GTL [K]")
@@ -819,4 +1075,17 @@ if __name__ == "__main__":
         select_and_plot_qt_pdf(
             points, every_nth=MULTI_PLOT_EVERY_NTH,
             save_path=f"Design_Point/Plots/{qt_pdf_name}.pdf",
+        )
+
+    if ENABLE_GAP_DECOMPOSITION_PLOT:
+        gaps = gap_to_duehring_bound(points, config)
+        plot_gap_decomposition(gaps, save_path=f"Design_Point/Plots/{gap_plot_name}.png")
+
+    if ENABLE_MULTI_CONFIG_COMPARISON:
+        variants = [
+            (f"T17={T}°C", replace(config, T_17_C=T)) for T in (15.0, 20.0, 25.0)
+        ]
+        curves = run_sweep_variants(variants, T_WASTE_RANGE_C)
+        plot_feasibility_sweep_multi(
+            curves, save_path=f"Design_Point/Plots/{multi_config_plot_name}.png"
         )

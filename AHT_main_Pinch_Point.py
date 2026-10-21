@@ -48,10 +48,10 @@ from Postprocessing.AHT_Duehring_Plot import plot_duehring_operating_point
 # Plots
 # ----------------------------------------------------------------------------
 # Generate Q-T diagrams (pinch analysis) after solving?
-ENABLE_QT_PLOT = True
+ENABLE_QT_PLOT = False
 QT_PLOT_SAVE_PATH = "Postprocessing/Plots/AHT_QT_Diagramme.png"  # None to skip saving
 # Generate a Duehring diagram with the operating point marked, after solving?
-ENABLE_DUEHRING_PLOT = True
+ENABLE_DUEHRING_PLOT = False
 DUEHRING_PLOT_SAVE_PATH = "Postprocessing/Plots/AHT_Duehring_Diagramm.png"  # None to skip saving
 DUEHRING_PLOT_VARIANT = "mass"  # "mass" or "mole"
 # ----------------------------------------------------------------------------

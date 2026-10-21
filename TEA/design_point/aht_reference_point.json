@@ -1,0 +1,34 @@
+{
+  "boundary_conditions": {
+    "T_11_C": 75.0,
+    "T_13_C": 70.0,
+    "T_17_C": 20.0,
+    "desorber_evaporator_routing_mode": "series_desorber_to_evaporator",
+    "cp_w_kJkgK": 4.18
+  },
+  "targets": {
+    "T12_target_C": 90.0,
+    "T16_target_C": 63.15,
+    "T18_target_C": 23.92,
+    "Qabs_reference_kW": 600.0
+  },
+  "UA_kW_K": {
+    "UA_shex": 7.647512334139048,
+    "UA_des": 150.279091357146,
+    "UA_cond": 116.93474823711546,
+    "UA_evap": 123.370190666222,
+    "UA_abs": 103.76405023689519
+  },
+  "ua_source": "C:\\Python_Skripte\\revAbs_AHT_AC\\revAbs_AHT_AC\\TEA\\design_point\\ac_design_point.json",
+  "reference_flows_kg_s": {
+    "m11": 9.569377990430622,
+    "m13": 41.90968462962316,
+    "m17": 36.61751782052532
+  },
+  "resulting": {
+    "T12_C": 90.0,
+    "T16_C": 63.16347323102843,
+    "T18_C": 23.90464327802357,
+    "COP": 0.5009853856705091
+  }
+}
