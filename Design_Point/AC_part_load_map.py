@@ -88,10 +88,11 @@ import sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 import csv
+import json
 import math
 import multiprocessing as mp
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -186,7 +187,17 @@ class PartLoadMapConfig:
     solve_timeout_s: Optional[float] = 60.0   # per solve_ac call (separate process); None = in-process
 
     # --- Output -----------------------------------------------------------------
+    # Base name of CSV, config file and plots. Use a NEW name for every changed
+    # configuration (machine, design point, bounds, solver settings); resuming
+    # into a file computed with different settings is refused. Only the grid
+    # (GRID_FIELDS) may change between runs with the same name.
     output_name: str = "AC_part_load_map"
+
+
+# Fields that may change between runs writing into the same CSV: every map
+# point depends only on its own coordinates, so extending/refining the grid
+# keeps all existing points valid. Everything else changes the results.
+GRID_FIELDS = ("plr_values", "T_reject_values_C", "m_cw_ratio_values", "output_name")
 
 
 # ---------------------------------------------------------------------------
@@ -654,7 +665,9 @@ def compute_part_load_map(
     if previous is None:
         if csv_path is not None:
             _write_csv_header(csv_path)
+            _write_config(cfg, _config_path(csv_path))
     else:
+        _check_config(cfg, _config_path(csv_path))
         print(f"Resuming from {csv_path}: {len(previous)} points already computed")
     n_total = len(T_vals) * len(C_vals) * len(P_vals)
     t_run = time.time()
@@ -815,6 +828,42 @@ def _csv_row(p: MapPoint) -> Dict[str, object]:
                     "pinch_min_K": o.pinch_min_K, "pinch_min_at": o.pinch_min_at})
         row.update(dict(zip(X_FIELDS, o.x.tolist())))
     return row
+
+
+def _config_path(csv_path: Path) -> Path:
+    return csv_path.with_name(f"{csv_path.stem}_config.json")
+
+
+def _config_signature(cfg: PartLoadMapConfig) -> Dict[str, object]:
+    """All settings that influence the results (everything but the grid)."""
+    signature = {k: v for k, v in asdict(cfg).items() if k not in GRID_FIELDS}
+    return json.loads(json.dumps(signature))     # tuples -> lists, as stored in the file
+
+
+def _write_config(cfg: PartLoadMapConfig, path: Path) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(_config_signature(cfg), f, indent=2)
+
+
+def _check_config(cfg: PartLoadMapConfig, path: Path) -> None:
+    """Refuses to resume into a CSV computed with different settings."""
+    if not path.exists():
+        # CSV written before the config file existed: adopt the current settings.
+        print(f"Warning: {path.name} not found -- assuming the existing CSV was computed "
+              f"with the current settings and writing them now.")
+        _write_config(cfg, path)
+        return
+    with open(path, encoding="utf-8") as f:
+        stored = json.load(f)
+    current = _config_signature(cfg)
+    changed = sorted(k for k in set(stored) | set(current) if stored.get(k) != current.get(k))
+    if changed:
+        details = "\n".join(f"  {k}: stored {stored.get(k)!r} -> now {current.get(k)!r}" for k in changed)
+        raise RuntimeError(
+            f"The existing map '{path.stem.removesuffix('_config')}' was computed with different "
+            f"settings:\n{details}\nSet a new output_name in PartLoadMapConfig to compute this "
+            f"configuration as a separate map (or delete the old CSV to overwrite it)."
+        )
 
 
 def _read_csv(path: Path) -> Optional[Dict[Tuple[float, float, float], MapPoint]]:
