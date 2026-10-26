@@ -42,6 +42,10 @@ Usage from the main script
 """
 
 from __future__ import annotations
+from pathlib import Path
+import sys
+
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 import math
 from pathlib import Path

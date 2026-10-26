@@ -393,10 +393,10 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------
     # ADJUST HERE: pinch assumptions for the optimistic estimate
     # ------------------------------------------------------------------
-    DT_MIN_DES = 3.0
-    DT_MIN_EVAP = 3.0
-    DT_MIN_COND = 3.0
-    DT_MIN_ABS = 3.0
+    DT_MIN_DES = 5.0
+    DT_MIN_EVAP = 5.0
+    DT_MIN_COND = 5.0
+    DT_MIN_ABS = 5.0
 
     T_WASTE_RANGE_C = list(np.arange(40.0, 100.0, 5.0))
     T17_CURVES_C = [15.0, 20.0, 25.0]
