@@ -445,6 +445,11 @@ class Evaluator:
         self.cfg = cfg
         self.n_solves = 0
         self.solver = TimedSolver(cfg.solve_timeout_s)
+        # Solver vector of the last call's converged solution that was rejected
+        # only for lying on the high-circulation branch. Not a result, but a
+        # usable warm start: a scan starting at T11 = T_geo at low load first
+        # meets that branch and continues from it into the physical one.
+        self.hint_x: Optional[np.ndarray] = None
 
     def _is_valid(self, result: ACResult, dw: float) -> bool:
         info = result.solve_info
@@ -458,13 +463,15 @@ class Evaluator:
             return False
         if self.cfg.dw_cryst_min is not None and dw < self.cfg.dw_cryst_min:
             return False
-        if self.cfg.FR_max is not None and not result.kpis["FR"] <= self.cfg.FR_max:
-            return False
         return True
+
+    def _on_high_fr_branch(self, result: ACResult) -> bool:
+        return self.cfg.FR_max is not None and not result.kpis["FR"] <= self.cfg.FR_max
 
     def __call__(
         self, plr: float, sp: Setpoints, x0_candidates: Sequence[np.ndarray],
     ) -> Optional[OperatingPoint]:
+        self.hint_x = None
         try:
             inputs = _build_operating_inputs(self.cfg, plr, sp)
         except ValueError:
@@ -479,6 +486,9 @@ class Evaluator:
                 continue
             dw = _crystallization_margin(result)
             if not self._is_valid(result, dw):
+                continue
+            if self._on_high_fr_branch(result):
+                self.hint_x = _x_from_result(result)
                 continue
             T12_C = result.states["12"]["T_K"] - 273.15
             Q_des = result.heat_flows_kW["Q_des"]
@@ -509,7 +519,11 @@ def _scan_and_refine(
     x0_candidates: Sequence[np.ndarray],
     max_consecutive_failures: int,
     refine_maxiter: int,
+    hint: Optional[Callable[[], Optional[np.ndarray]]] = None,
 ) -> Optional[OperatingPoint]:
+    """`hint` returns the solver vector of a converged but rejected solution
+    of the last probe (or None); before the first success it is used as warm
+    start for the next probe, so the scan can walk along a rejected branch."""
     scan: List[Tuple[int, OperatingPoint]] = []
     x_chain = list(x0_candidates)
     failures = 0
@@ -519,6 +533,9 @@ def _scan_and_refine(
             failures += 1
             if scan and failures >= max_consecutive_failures:
                 break
+            x_hint = hint() if (hint is not None and not scan) else None
+            if x_hint is not None:
+                x_chain = [x_hint] + list(x0_candidates)[:1]
             continue
         failures = 0
         scan.append((i, op))
@@ -675,6 +692,35 @@ def compute_part_load_map(
     T_order = _outward_order(T_vals, cfg.T_reject_design_C)
     C_order = _outward_order(C_vals, 1.0)
 
+    # Resume: make ALL points taken over from the CSV known up front, so they
+    # serve as neighbors/warm starts regardless of the walk order.
+    if previous is not None:
+        for (plr_p, T_p, r_p), point in previous.items():
+            if plr_p in P_vals and T_p in T_vals and r_p in C_vals:
+                key = (T_vals.index(T_p), C_vals.index(r_p), P_vals.index(plr_p))
+                if point.optimum is not None:
+                    done[key] = point.optimum
+                elif point.limit in failed:
+                    failed[point.limit].add(key)
+
+    def seed_by_load_path(plr_target: float, T_rej: float, r_cw: float) -> Optional[np.ndarray]:
+        """Warm start for a point without computed neighbors: lower the load
+        step by step from full load (design start, T11 = T_geo) to the target,
+        re-scanning T11 at every step. A direct jump from full load to e.g.
+        PLR 0.2 does not converge onto the physical branch."""
+        x_seed, T_prev = nom.x, cfg.T_geo_C
+        for plr_step in np.arange(1.0, plr_target - 1.0e-9, -0.2)[1:].tolist() + [plr_target]:
+            grid = [T for T in np.arange(cfg.T_geo_C, cfg.T11_min_C - 1.0e-9, -cfg.T11_step_C)
+                    if T <= min(cfg.T_geo_C, T_prev + cfg.scan_margin_C)]
+            op = _scan_and_refine(
+                lambda T11, xs: evaluate(plr_step, Setpoints(T11, nom.m11_kg_s, T_rej, r_cw * nom.m13_kg_s,
+                                                             r_cw * nom.m15_kg_s), xs),
+                grid, [x_seed, nom.x], cfg.max_consecutive_failures, 0, hint=lambda: evaluate.hint_x)
+            if op is None:
+                return None
+            x_seed, T_prev = op.x, op.setpoints.T11_C
+        return x_seed
+
     def report(point: MapPoint, msg: str) -> None:
         print(f"[{len(points):3d}/{n_total}, {(time.time() - t_run) / 60:5.0f} min] "
               f"T_rej={point.T_reject_C:4.1f} °C m_cw={point.m_cw_ratio:4.2f}x PLR={point.plr:4.2f} "
@@ -736,6 +782,10 @@ def compute_part_load_map(
                                      (_adjacent(T_vals, i, -1), k, j), (_adjacent(T_vals, i, +1), k, j)]
                     neighbors = [done[key] for key in neighbor_keys if key in done]
                     cands = [op.x for op in neighbors][:3] + [nom.x]
+                    if not neighbors and plr < 1.0:
+                        x_seed = seed_by_load_path(plr, T_rej, r_cw)
+                        if x_seed is not None:
+                            cands = [x_seed] + cands
 
                     def at_T11(T11: float, xs: Sequence[np.ndarray]) -> Optional[OperatingPoint]:
                         return evaluate(plr, Setpoints(T11, nom.m11_kg_s, T_rej,
@@ -743,7 +793,7 @@ def compute_part_load_map(
 
                     def scan(grid: Sequence[float]) -> Optional[OperatingPoint]:
                         return _scan_and_refine(at_T11, grid, cands, cfg.max_consecutive_failures,
-                                                cfg.refine_maxiter)
+                                                cfg.refine_maxiter, hint=lambda: evaluate.hint_x)
 
                     full_grid = list(np.arange(cfg.T_geo_C, cfg.T11_min_C - 1.0e-9, -cfg.T11_step_C))
                     start = None
