@@ -359,7 +359,7 @@ def _build_operating_inputs(cfg: PartLoadMapConfig, plr: float, sp: Setpoints) -
     )
 
 
-def _solver_worker(conn) -> None:
+def _solver_worker(conn, solve_fn) -> None:
     """Runs in a separate process: receives (inputs, x0), returns the result."""
     while True:
         message = conn.recv()
@@ -367,21 +367,23 @@ def _solver_worker(conn) -> None:
             return
         inputs, x0 = message
         try:
-            conn.send(("ok", solve_ac(inputs, x0=x0)))
+            conn.send(("ok", solve_fn(inputs, x0=x0)))
         except Exception as exc:
             conn.send(("error", repr(exc)))
 
 
 class TimedSolver:
-    """solve_ac with a wall-clock limit.
+    """A model solve function (default solve_ac) with a wall-clock limit.
 
-    solve_ac cannot be interrupted from outside, so it runs in a worker
+    The solve cannot be interrupted from outside, so it runs in a worker
     process; on timeout the worker is killed and restarted, and the call
-    raises TimeoutError. With timeout_s=None it calls solve_ac directly.
+    raises TimeoutError. With timeout_s=None it calls the function directly.
+    solve_fn must be a module-level function (it is passed to the worker).
     """
 
-    def __init__(self, timeout_s: Optional[float]):
+    def __init__(self, timeout_s: Optional[float], solve_fn: Callable = solve_ac):
         self.timeout_s = timeout_s
+        self.solve_fn = solve_fn
         self.n_timeouts = 0
         self.n_worker_restarts = 0
         self._proc = None
@@ -391,7 +393,7 @@ class TimedSolver:
     def _start(self) -> None:
         ctx = mp.get_context("spawn")
         self._conn, child_conn = ctx.Pipe()
-        self._proc = ctx.Process(target=_solver_worker, args=(child_conn,), daemon=True)
+        self._proc = ctx.Process(target=_solver_worker, args=(child_conn, self.solve_fn), daemon=True)
         self._proc.start()
 
     def _restart(self) -> None:
@@ -400,9 +402,9 @@ class TimedSolver:
         self._proc.join()
         self._start()
 
-    def __call__(self, inputs: ACInputs, x0: np.ndarray) -> ACResult:
+    def __call__(self, inputs, x0: np.ndarray):
         if self.timeout_s is None:
-            return solve_ac(inputs, x0=x0)
+            return self.solve_fn(inputs, x0=x0)
         if not self._proc.is_alive():
             # Worker died (crash or killed from outside): without a restart
             # every following call would fail instantly and all remaining
